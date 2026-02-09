@@ -283,6 +283,20 @@ async def lifespan(app: FastAPI):
     get_engine()
     logger.info("Database engine initialized")
 
+    # #region agent log
+    # Verify tables exist
+    try:
+        from sqlalchemy import text as sa_text
+        from src.database.connection import get_session
+        async with get_session() as session:
+            result = await session.execute(sa_text("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
+            tables = [row[0] for row in result.fetchall()]
+            logger.warning(f"[DEBUG][H1][H3] Tables in DB: {tables}")
+            logger.warning(f"[DEBUG][H1][H3] 'users' table exists: {'users' in tables}")
+    except Exception as e:
+        logger.warning(f"[DEBUG][H2][H3] DB table check FAILED: {e}")
+    # #endregion
+
     # Initialize Telegram bot
     _bot_app = create_bot_application()
     await _bot_app.initialize()
@@ -326,13 +340,25 @@ async def telegram_webhook(request: Request):
     global _bot_app
 
     if _bot_app is None:
+        # #region agent log
+        logger.warning("[DEBUG][H5] Webhook called but _bot_app is None!")
+        # #endregion
         return {"error": "Bot not initialized"}
 
     try:
         data = await request.json()
+        # #region agent log
+        logger.warning(f"[DEBUG][H4] Webhook received update: {data.get('update_id', 'no_id')}, message: {bool(data.get('message'))}")
+        # #endregion
         update = Update.de_json(data, _bot_app.bot)
         await _bot_app.process_update(update)
+        # #region agent log
+        logger.warning(f"[DEBUG][H4] process_update completed for update_id={data.get('update_id')}")
+        # #endregion
     except Exception as e:
+        # #region agent log
+        logger.warning(f"[DEBUG][H3][H4] Webhook exception: {type(e).__name__}: {e}")
+        # #endregion
         logger.error(f"Error processing webhook update: {e}", exc_info=True)
 
     return {"ok": True}
@@ -395,3 +421,31 @@ async def index():
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok", "service": "lobanov-mentor-bot"}
+
+
+# #region agent log
+@app.get("/debug/db-check")
+async def debug_db_check():
+    """Debug endpoint: check if database tables exist."""
+    from sqlalchemy import text as sa_text
+    from src.database.connection import get_session
+    try:
+        async with get_session() as session:
+            result = await session.execute(sa_text("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
+            tables = [row[0] for row in result.fetchall()]
+            has_users = "users" in tables
+            # Check pgvector
+            try:
+                ext_result = await session.execute(sa_text("SELECT extname FROM pg_extension WHERE extname='vector'"))
+                has_pgvector = ext_result.scalar_one_or_none() is not None
+            except Exception:
+                has_pgvector = False
+            return {
+                "tables": tables,
+                "users_table_exists": has_users,
+                "pgvector_installed": has_pgvector,
+                "table_count": len(tables),
+            }
+    except Exception as e:
+        return {"error": str(e), "type": type(e).__name__}
+# #endregion

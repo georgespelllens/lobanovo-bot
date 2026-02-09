@@ -95,47 +95,59 @@ def determine_level(role: str, has_blog: str, hours: int) -> str:
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
+    # #region agent log
+    logger.warning(f"[DEBUG][H3] handle_start ENTERED for user {update.effective_user.id}")
+    # #endregion
     tg_user = update.effective_user
 
-    async with get_session() as session:
-        user = await get_or_create_user(
-            session,
-            telegram_id=tg_user.id,
-            username=tg_user.username,
-            first_name=tg_user.first_name,
-            last_name=tg_user.last_name,
-        )
+    try:
+        async with get_session() as session:
+            user = await get_or_create_user(
+                session,
+                telegram_id=tg_user.id,
+                username=tg_user.username,
+                first_name=tg_user.first_name,
+                last_name=tg_user.last_name,
+            )
+            # #region agent log
+            logger.warning(f"[DEBUG][H3] get_or_create_user OK: user.id={user.id}, onboarding={user.onboarding_completed}")
+            # #endregion
 
-        if user.onboarding_completed:
-            # Returning user
-            level_emoji = {"kitten": "🐱", "wolfling": "🐺", "wolf": "🐺🔥"}
-            emoji = level_emoji.get(user.level, "🐱")
+            if user.onboarding_completed:
+                # Returning user
+                level_emoji = {"kitten": "🐱", "wolfling": "🐺", "wolf": "🐺🔥"}
+                emoji = level_emoji.get(user.level, "🐱")
+
+                await update.message.reply_text(
+                    f"С возвращением, {tg_user.first_name}! {emoji}\n\n"
+                    "Чем могу помочь?\n\n"
+                    "💬 Задай вопрос — я отвечу в стиле Лобанова\n"
+                    "📝 /audit — разберу твой пост\n"
+                    "📋 /tasks — задания на неделю\n"
+                    "📊 /progress — твой прогресс\n"
+                    "🎤 /ask_kostya — задать вопрос Косте лично"
+                )
+                return
+
+            # New user — start onboarding
+            user.onboarding_step = 0
+            user.current_mode = "onboarding"
 
             await update.message.reply_text(
-                f"С возвращением, {tg_user.first_name}! {emoji}\n\n"
-                "Чем могу помочь?\n\n"
-                "💬 Задай вопрос — я отвечу в стиле Лобанова\n"
-                "📝 /audit — разберу твой пост\n"
-                "📋 /tasks — задания на неделю\n"
-                "📊 /progress — твой прогресс\n"
-                "🎤 /ask_kostya — задать вопрос Косте лично"
+                f"Привет, {tg_user.first_name}! 👋\n\n"
+                "Я — ИИ-помощник Кости Лобанова. "
+                "Помогу с личным брендом, карьерой и контентом.\n\n"
+                "Для начала, давай познакомимся — "
+                "ответь на 5 вопросов, чтобы я понял, как могу помочь."
             )
-            return
 
-        # New user — start onboarding
-        user.onboarding_step = 0
-        user.current_mode = "onboarding"
-
-        await update.message.reply_text(
-            f"Привет, {tg_user.first_name}! 👋\n\n"
-            "Я — ИИ-помощник Кости Лобанова. "
-            "Помогу с личным брендом, карьерой и контентом.\n\n"
-            "Для начала, давай познакомимся — "
-            "ответь на 5 вопросов, чтобы я понял, как могу помочь."
-        )
-
-        # Send first question
-        await send_onboarding_question(update, context, step=1)
+            # Send first question
+            await send_onboarding_question(update, context, step=1)
+    except Exception as e:
+        # #region agent log
+        logger.warning(f"[DEBUG][H3] handle_start EXCEPTION: {type(e).__name__}: {e}")
+        # #endregion
+        raise
 
 
 async def send_onboarding_question(

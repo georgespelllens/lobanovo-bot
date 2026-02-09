@@ -17,8 +17,20 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # #region agent log
+    print("[DEBUG][H1] upgrade() started — attempting to create pgvector extension")
+    # #endregion
     # Enable pgvector extension
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    try:
+        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        # #region agent log
+        print("[DEBUG][H1] pgvector extension created successfully")
+        # #endregion
+    except Exception as e:
+        # #region agent log
+        print(f"[DEBUG][H1] pgvector extension FAILED: {e}")
+        # #endregion
+        raise
 
     # Users
     op.create_table(
@@ -253,6 +265,10 @@ def upgrade() -> None:
     )
     op.create_index("idx_dq_user", "direct_questions", ["user_id"])
     op.create_index("idx_dq_status", "direct_questions", ["status"])
+
+    # #region agent log
+    print("[DEBUG][H1][H2] ALL TABLES CREATED SUCCESSFULLY")
+    # #endregion
 
 
 def downgrade() -> None:
