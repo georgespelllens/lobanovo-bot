@@ -7,7 +7,6 @@ Create Date: 2026-02-09
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from pgvector.sqlalchemy import Vector
 
 # revision identifiers
 revision = "001_initial"
@@ -15,22 +14,39 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
+_has_pgvector = False
+
 
 def upgrade() -> None:
+    global _has_pgvector
+
     # #region agent log
-    print("[DEBUG][H1] upgrade() started — attempting to create pgvector extension")
+    print("[DEBUG][H1] upgrade() started — checking pgvector availability")
     # #endregion
-    # Enable pgvector extension
-    try:
+
+    # Check if pgvector extension is available before trying to create it
+    # (attempting CREATE EXTENSION on unavailable ext poisons the transaction)
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")
+    )
+    pgvector_available = result.scalar() is not None
+
+    # #region agent log
+    print(f"[DEBUG][H1] pgvector available in pg_available_extensions: {pgvector_available}")
+    # #endregion
+
+    if pgvector_available:
         op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        _has_pgvector = True
         # #region agent log
-        print("[DEBUG][H1] pgvector extension created successfully")
+        print("[DEBUG][H1] pgvector extension created/confirmed")
         # #endregion
-    except Exception as e:
+    else:
+        _has_pgvector = False
         # #region agent log
-        print(f"[DEBUG][H1] pgvector extension FAILED: {e}")
+        print("[DEBUG][H1] pgvector NOT available — using JSONB fallback for embeddings")
         # #endregion
-        raise
 
     # Users
     op.create_table(
@@ -73,14 +89,20 @@ def upgrade() -> None:
     op.create_index("idx_users_subscription", "users", ["subscription_tier"])
 
     # Knowledge Base
-    op.create_table(
-        "knowledge_base",
+    kb_columns = [
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("source", sa.String(50), nullable=False),
         sa.Column("original_post_id", sa.String(100)),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("content_summary", sa.Text()),
-        sa.Column("embedding", Vector(1536)),
+    ]
+    if _has_pgvector:
+        from pgvector.sqlalchemy import Vector
+        kb_columns.append(sa.Column("embedding", Vector(1536)))
+    else:
+        # Store as JSON array when pgvector is not available
+        kb_columns.append(sa.Column("embedding", postgresql.JSONB()))
+    kb_columns.extend([
         sa.Column("category", sa.String(50)),
         sa.Column("tags", postgresql.ARRAY(sa.Text())),
         sa.Column("quality_score", sa.Float(), server_default="0.5"),
@@ -88,7 +110,8 @@ def upgrade() -> None:
         sa.Column("original_date", sa.DateTime(timezone=True)),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-    )
+    ])
+    op.create_table("knowledge_base", *kb_columns)
     op.create_index("idx_kb_category", "knowledge_base", ["category"])
 
     # Conversations
