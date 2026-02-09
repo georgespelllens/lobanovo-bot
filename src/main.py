@@ -280,22 +280,47 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     # Initialize DB engine
-    get_engine()
+    engine = get_engine()
     logger.info("Database engine initialized")
 
-    # #region agent log
-    # Verify tables exist
-    try:
-        from sqlalchemy import text as sa_text
-        from src.database.connection import get_session
-        async with get_session() as session:
-            result = await session.execute(sa_text("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
-            tables = [row[0] for row in result.fetchall()]
-            logger.warning(f"[DEBUG][H1][H3] Tables in DB: {tables}")
-            logger.warning(f"[DEBUG][H1][H3] 'users' table exists: {'users' in tables}")
-    except Exception as e:
-        logger.warning(f"[DEBUG][H2][H3] DB table check FAILED: {e}")
-    # #endregion
+    # Create tables if they don't exist (Railway release phase may not run)
+    from sqlalchemy import text as sa_text
+    from src.database.models import Base
+
+    async with engine.begin() as conn:
+        # Check existing tables
+        result = await conn.execute(sa_text("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
+        tables = [row[0] for row in result.fetchall()]
+        # #region agent log
+        logger.warning(f"[DEBUG][H6] Tables before create_all: {tables}")
+        # #endregion
+
+        if "users" not in tables:
+            logger.info("Tables not found — creating via metadata.create_all")
+            # Try to enable pgvector extension
+            pgv_check = await conn.execute(
+                sa_text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")
+            )
+            if pgv_check.scalar() is not None:
+                await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
+                # #region agent log
+                logger.warning("[DEBUG][H6] pgvector extension enabled")
+                # #endregion
+            else:
+                # #region agent log
+                logger.warning("[DEBUG][H6] pgvector NOT available — embeddings may not work")
+                # #endregion
+
+            await conn.run_sync(Base.metadata.create_all)
+            # Verify
+            result2 = await conn.execute(sa_text("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
+            tables2 = [row[0] for row in result2.fetchall()]
+            # #region agent log
+            logger.warning(f"[DEBUG][H6] Tables after create_all: {tables2}")
+            # #endregion
+            logger.info(f"Created {len(tables2)} tables: {tables2}")
+        else:
+            logger.info(f"Database OK — {len(tables)} tables found")
 
     # Initialize Telegram bot
     _bot_app = create_bot_application()
