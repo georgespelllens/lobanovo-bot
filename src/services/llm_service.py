@@ -38,10 +38,11 @@ def _get_embedding_client() -> AsyncOpenAI:
 def calculate_cost(usage, model: str) -> float:
     """Estimate cost based on model and usage (per 1M tokens)."""
     costs = {
-        "grok-2": (1.0, 4.0),
+        "grok-4": (3.0, 15.0),
+        "grok-4-1-fast-reasoning": (0.20, 0.50),
+        "grok-4-1-fast-non-reasoning": (0.20, 0.50),
         "grok-3": (2.0, 8.0),
-        "grok-4": (2.0, 8.0),
-        "grok-3-mini": (0.5, 2.0),
+        "grok-3-mini": (0.50, 2.0),
         "google/gemini-embedding-001": (0.15, 0.0),
     }
     rates = costs.get(model, (1.0, 4.0))

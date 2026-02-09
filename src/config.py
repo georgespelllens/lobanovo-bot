@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     secret_key: str = "change-me"
 
     # Models
-    default_model: str = "grok-2"
+    default_model: str = "grok-4"
     embedding_model: str = "google/gemini-embedding-001"
 
     # Limits
@@ -72,16 +72,18 @@ class Settings(BaseSettings):
 
 
 # Models for different tasks (chat: xAI Grok, embedding: OpenRouter/Gemini)
+# grok-4: flagship reasoning ($3/$15 per 1M tokens, 256K context)
+# grok-4-1-fast-non-reasoning: fast & cheap ($0.20/$0.50 per 1M, 2M context)
 MODELS = {
-    "qa": "grok-2",
-    "audit": "grok-2",
-    "task_review": "grok-2",
-    "summary": "grok-2",
+    "qa": "grok-4",
+    "audit": "grok-4",
+    "task_review": "grok-4",
+    "summary": "grok-4-1-fast-non-reasoning",
     "embedding": "google/gemini-embedding-001",
-    "categorize": "grok-2",
-    "direct_line_card": "grok-2",
-    "direct_line_followup": "grok-2",
-    "direct_line_anonymize": "grok-2",
+    "categorize": "grok-4-1-fast-non-reasoning",
+    "direct_line_card": "grok-4-1-fast-non-reasoning",
+    "direct_line_followup": "grok-4",
+    "direct_line_anonymize": "grok-4-1-fast-non-reasoning",
 }
 
 # Tier limits
