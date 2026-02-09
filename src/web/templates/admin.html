@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Админка — Приёмная Лобанова{% endblock %}
+
+{% block content %}
+<div class="admin-dashboard">
+    <h1>🔧 Админ-панель</h1>
+
+    <!-- Stats Overview -->
+    <div class="card-grid">
+        <div class="card">
+            <div class="card-header">👥 Пользователи</div>
+            <div class="card-body">
+                <div class="stat-large">{{ stats.total_users }}</div>
+                <p class="text-muted">Активных (7 дн): {{ stats.active_users_7d }}</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">💬 Сообщения сегодня</div>
+            <div class="card-body">
+                <div class="stat-large">{{ stats.messages_today }}</div>
+                <p class="text-muted">Ср. оценка: {{ stats.avg_rating or '—' }}</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">💰 Прямая линия</div>
+            <div class="card-body">
+                <div class="stat-large">{{ stats.direct_line_revenue_rub }}₽</div>
+                <p class="text-muted">Вопросов: {{ stats.direct_line_total }}</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">📚 База знаний</div>
+            <div class="card-body">
+                <div class="stat-large">{{ kb_stats.total }}</div>
+                <p class="text-muted">С эмбеддингами: {{ kb_stats.with_embeddings }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Subscriptions -->
+    <div class="card-grid">
+        <div class="card">
+            <div class="card-header">📋 Подписки</div>
+            <div class="card-body">
+                {% for tier, count in stats.subscriptions.items() %}
+                <div class="stat-row">
+                    <span>{{ tier|upper }}:</span>
+                    <strong>{{ count }}</strong>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Pending Direct Questions -->
+    {% if direct_questions %}
+    <div class="section">
+        <h2>🎤 Прямая линия — ожидают ответа</h2>
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Пользователь</th>
+                        <th>Вопрос</th>
+                        <th>Дедлайн</th>
+                        <th>Статус</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dq in direct_questions %}
+                    <tr>
+                        <td>{{ dq.id }}</td>
+                        <td>{{ dq.user_context.get('role', '?') }}</td>
+                        <td>{{ (dq.question_text or dq.question_voice_transcript or '—')[:80] }}</td>
+                        <td>{{ dq.deadline_at.strftime('%d.%m %H:%M') if dq.deadline_at else '—' }}</td>
+                        <td><span class="badge badge-{{ dq.status }}">{{ dq.status }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Pending Escalations -->
+    {% if escalations %}
+    <div class="section">
+        <h2>🔔 Эскалации</h2>
+        <div class="escalation-list">
+            {% for esc in escalations %}
+            <div class="card">
+                <div class="card-header">
+                    #{{ esc.id }} | {{ esc.trigger_type }}
+                    <span class="text-muted">{{ esc.created_at.strftime('%d.%m %H:%M') }}</span>
+                </div>
+                <div class="card-body">
+                    <p>{{ esc.summary }}</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Users List -->
+    <div class="section">
+        <h2>👥 Пользователи (последние 50)</h2>
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Уровень</th>
+                        <th>XP</th>
+                        <th>Тариф</th>
+                        <th>Последняя активность</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users_list %}
+                    <tr>
+                        <td>@{{ u.username or '—' }}</td>
+                        <td>{{ u.level }}</td>
+                        <td>{{ u.xp }}</td>
+                        <td>{{ u.subscription_tier }}</td>
+                        <td>{{ u.last_interaction.strftime('%d.%m %H:%M') if u.last_interaction else '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

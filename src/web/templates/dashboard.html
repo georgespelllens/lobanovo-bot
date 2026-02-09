@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Дашборд — Приёмная Лобанова{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="dashboard-header">
+        <h1>Привет, {{ user.first_name or user.username }}! 👋</h1>
+        <div class="level-badge level-{{ user.level }}">
+            {% if user.level == 'kitten' %}🐱 Котёнок
+            {% elif user.level == 'wolfling' %}🐺 Волчонок
+            {% else %}🐺🔥 Волк{% endif %}
+        </div>
+    </div>
+
+    <!-- Progress Section -->
+    <div class="card-grid">
+        <div class="card">
+            <div class="card-header">📊 Прогресс</div>
+            <div class="card-body">
+                <div class="stat-large">{{ user.xp }} XP</div>
+                <div class="progress-bar">
+                    {% if user.level == 'kitten' %}
+                        {% set progress = (user.xp / 100 * 100)|int %}
+                        {% set next_level = "Волчонок" %}
+                        {% set xp_needed = 100 - user.xp %}
+                    {% elif user.level == 'wolfling' %}
+                        {% set progress = ((user.xp - 100) / 200 * 100)|int %}
+                        {% set next_level = "Волк" %}
+                        {% set xp_needed = 300 - user.xp %}
+                    {% else %}
+                        {% set progress = 100 %}
+                        {% set next_level = "" %}
+                        {% set xp_needed = 0 %}
+                    {% endif %}
+                    <div class="progress-fill" style="width: {{ [progress, 100]|min }}%"></div>
+                </div>
+                {% if next_level %}
+                <p class="text-muted">До {{ next_level }}: {{ xp_needed }} XP</p>
+                {% else %}
+                <p class="text-muted">Максимальный уровень!</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">📋 Задания</div>
+            <div class="card-body">
+                <div class="stat-row">
+                    <span>Выполнено:</span>
+                    <strong>{{ task_stats.completed }}</strong>
+                </div>
+                <div class="stat-row">
+                    <span>Всего назначено:</span>
+                    <strong>{{ task_stats.total }}</strong>
+                </div>
+                <div class="stat-row">
+                    <span>Заработано XP:</span>
+                    <strong>{{ task_stats.total_xp }}</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">💎 Подписка</div>
+            <div class="card-body">
+                <div class="stat-large">
+                    {% if user.subscription_tier == 'free' %}Free 🐱
+                    {% elif user.subscription_tier == 'pro' %}Pro 🐺
+                    {% else %}Premium 🐺🔥{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Tasks -->
+    {% if active_tasks %}
+    <div class="section">
+        <h2>📋 Текущие задания</h2>
+        <div class="task-list">
+            {% for task in active_tasks %}
+            <div class="task-item task-{{ task.status }}">
+                <div class="task-status">
+                    {% if task.status == 'assigned' %}⬜
+                    {% elif task.status == 'submitted' %}🔄
+                    {% elif task.status == 'completed' %}✅
+                    {% else %}⏭{% endif %}
+                </div>
+                <div class="task-content">
+                    <strong>{{ task.task_template.title if task.task_template else 'Задание' }}</strong>
+                    {% if task.xp_earned %}
+                    <span class="xp-badge">+{{ task.xp_earned }} XP</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Recent Activity -->
+    {% if recent_messages %}
+    <div class="section">
+        <h2>💬 Последние разговоры</h2>
+        <div class="message-list">
+            {% for msg in recent_messages[-10:] %}
+            <div class="message message-{{ msg.role }}">
+                <div class="message-header">
+                    {% if msg.role == 'user' %}👤 Ты{% else %}🤖 Бот{% endif %}
+                    <span class="message-time">{{ msg.created_at.strftime('%d.%m %H:%M') }}</span>
+                </div>
+                <div class="message-text">{{ msg.content[:300] }}{% if msg.content|length > 300 %}...{% endif %}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

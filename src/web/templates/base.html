@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Приёмная Лобанова{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="/">🐺 Приёмная Лобанова</a>
+        </div>
+        <div class="nav-links">
+            {% if user %}
+                <a href="/dashboard">Дашборд</a>
+                {% if user.is_admin %}
+                    <a href="/admin">Админка</a>
+                {% endif %}
+                <span class="nav-user">{{ user.first_name or user.username }}</span>
+                <a href="/logout" class="btn-sm">Выйти</a>
+            {% else %}
+                <a href="/login">Войти</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 Приёмная Лобанова. Powered by AI.</p>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,121 @@
+"""Audit handler — post review mode."""
+
+from datetime import datetime
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes
+
+from src.database.connection import get_session
+from src.database.repository import (
+    get_or_create_user,
+    get_or_create_conversation,
+    save_message,
+)
+from src.services.rag_service import get_audit_response
+from src.services.subscription_service import check_weekly_limit, increment_usage
+from src.utils.logger import logger
+
+
+async def handle_audit_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /audit command — switch to audit mode."""
+    tg_user = update.effective_user
+
+    async with get_session() as session:
+        user = await get_or_create_user(session, telegram_id=tg_user.id)
+        user.current_mode = "audit"
+
+        await update.message.reply_text(
+            "📝 Режим аудита постов включён.\n\n"
+            "Пришли мне текст своего поста — я разберу его по 6 критериям Лобанова:\n"
+            "1. Мета-сообщение\n"
+            "2. Конкретика\n"
+            "3. Позиционирование\n"
+            "4. Читабельность\n"
+            "5. Антипаттерны\n"
+            "6. CTA\n\n"
+            "Можешь прислать текстом или переслать сообщение.\n"
+            "Чтобы вернуться к вопросам — /ask"
+        )
+
+
+async def handle_audit_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str
+) -> None:
+    """Handle a post audit request."""
+    tg_user = update.effective_user
+
+    async with get_session() as session:
+        user = await get_or_create_user(session, telegram_id=tg_user.id)
+
+        # Check limits
+        within_limit, used, max_val = check_weekly_limit(user, "audits")
+        if not within_limit:
+            await update.message.reply_text(
+                f"Лимит аудитов на этой неделе исчерпан ({used}/{max_val}) 😔\n\n"
+                "Хочешь больше? Посмотри тарифы → /plan"
+            )
+            return
+
+        # Send typing indicator
+        await context.bot.send_chat_action(
+            chat_id=update.effective_chat.id, action="typing"
+        )
+
+        # Get or create conversation
+        conv = await get_or_create_conversation(session, user.id, "audit")
+
+        # Save user message
+        await save_message(
+            session,
+            conversation_id=conv.id,
+            user_id=user.id,
+            role="user",
+            content=text,
+            input_type="text",
+        )
+
+        # Generate audit
+        try:
+            result = await get_audit_response(session, text, user.level)
+        except Exception as e:
+            logger.error(f"LLM error in audit: {e}")
+            await update.message.reply_text(
+                "Произошла ошибка при анализе поста. Попробуй ещё раз."
+            )
+            return
+
+        # Save assistant message
+        bot_msg = await save_message(
+            session,
+            conversation_id=conv.id,
+            user_id=user.id,
+            role="assistant",
+            content=result["content"],
+            tokens_input=result.get("tokens_input"),
+            tokens_output=result.get("tokens_output"),
+            model_used=result.get("model"),
+            cost_usd=result.get("cost"),
+        )
+
+        # Increment usage
+        increment_usage(user, "audits")
+        user.last_interaction = datetime.utcnow()
+
+        # Send response with rating and rewrite buttons
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("👍", callback_data=f"rate_up_{bot_msg.id}"),
+                    InlineKeyboardButton("👎", callback_data=f"rate_down_{bot_msg.id}"),
+                ],
+                [
+                    InlineKeyboardButton(
+                        "✍️ Перепиши пост", callback_data=f"rewrite_{bot_msg.id}"
+                    ),
+                ],
+            ]
+        )
+
+        await update.message.reply_text(result["content"], reply_markup=keyboard)

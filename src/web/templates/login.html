@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Вход — Приёмная Лобанова{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <div class="login-card">
+        <h1>Вход в дашборд</h1>
+        <p>Войди через Telegram, чтобы увидеть свой прогресс.</p>
+
+        {% if error %}
+        <div class="alert alert-error">
+            {% if error == "auth_failed" %}
+                Ошибка авторизации. Попробуй ещё раз.
+            {% elif error == "not_registered" %}
+                Ты ещё не зарегистрирован в боте. Начни с /start в <a href="https://t.me/lobanov_mentor_bot">@lobanov_mentor_bot</a>
+            {% else %}
+                Что-то пошло не так. Попробуй ещё раз.
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="telegram-login">
+            <p>Для входа напиши <code>/login</code> в боте — он пришлёт ссылку.</p>
+            <a href="https://t.me/lobanov_mentor_bot" class="btn btn-primary">Открыть бот</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
