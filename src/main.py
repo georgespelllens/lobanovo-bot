@@ -48,11 +48,19 @@ from src.web.routes.admin import router as admin_router
 _bot_app: Application = None
 
 
+async def error_handler(update: object, context) -> None:
+    """Log errors caused by updates."""
+    logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
+
+
 def create_bot_application() -> Application:
     """Create and configure the Telegram bot application."""
     settings = get_settings()
 
     app = Application.builder().token(settings.telegram_bot_token).build()
+
+    # ─── Error handler ───
+    app.add_error_handler(error_handler)
 
     # ─── User commands ───
     app.add_handler(CommandHandler("start", handle_start))
@@ -320,9 +328,12 @@ async def telegram_webhook(request: Request):
     if _bot_app is None:
         return {"error": "Bot not initialized"}
 
-    data = await request.json()
-    update = Update.de_json(data, _bot_app.bot)
-    await _bot_app.process_update(update)
+    try:
+        data = await request.json()
+        update = Update.de_json(data, _bot_app.bot)
+        await _bot_app.process_update(update)
+    except Exception as e:
+        logger.error(f"Error processing webhook update: {e}", exc_info=True)
 
     return {"ok": True}
 
