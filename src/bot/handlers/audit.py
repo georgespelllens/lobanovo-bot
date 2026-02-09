@@ -80,10 +80,21 @@ async def handle_audit_message(
         try:
             result = await get_audit_response(session, text, user.level)
         except Exception as e:
-            logger.error(f"LLM error in audit: {e}")
-            await update.message.reply_text(
-                "Произошла ошибка при анализе поста. Попробуй ещё раз."
+            error_type = type(e).__name__
+            status_code = getattr(e, "status_code", None)
+            logger.error(
+                f"LLM error in audit: [{error_type}] status={status_code} {e}",
+                exc_info=True,
             )
+            if status_code == 402 or "insufficient" in str(e).lower() or "credit" in str(e).lower():
+                error_msg = "Сервис временно недоступен (проблема с оплатой API). Админ уже уведомлён."
+            elif status_code == 429 or "rate" in str(e).lower():
+                error_msg = "Слишком много запросов. Подожди пару минут и попробуй снова."
+            elif status_code and status_code >= 500:
+                error_msg = "Сервер ИИ временно недоступен. Попробуй через пару минут."
+            else:
+                error_msg = "Произошла ошибка при анализе поста. Попробуй ещё раз через минуту."
+            await update.message.reply_text(error_msg)
             return
 
         # Save assistant message

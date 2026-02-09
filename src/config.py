@@ -13,10 +13,13 @@ class Settings(BaseSettings):
     admin_chat_id: int = 0
     admin_user_ids: str = ""  # comma-separated telegram IDs
 
-    # OpenRouter
+    # xAI (Grok) — chat completions
+    xai_api_key: str = ""
+
+    # OpenRouter — embeddings only (google/gemini-embedding-001)
     openrouter_api_key: str = ""
 
-    # OpenAI (Whisper)
+    # OpenAI (Whisper STT)
     openai_api_key: str = ""
 
     # Database
@@ -28,8 +31,8 @@ class Settings(BaseSettings):
     secret_key: str = "change-me"
 
     # Models
-    default_model: str = "anthropic/claude-sonnet-4-20250514"
-    embedding_model: str = "openai/text-embedding-3-small"
+    default_model: str = "grok-2"
+    embedding_model: str = "google/gemini-embedding-001"
 
     # Limits
     max_voice_duration_seconds: int = 300
@@ -68,17 +71,17 @@ class Settings(BaseSettings):
     }
 
 
-# Models for different tasks
+# Models for different tasks (chat: xAI Grok, embedding: OpenRouter/Gemini)
 MODELS = {
-    "qa": "anthropic/claude-sonnet-4-20250514",
-    "audit": "anthropic/claude-sonnet-4-20250514",
-    "task_review": "anthropic/claude-sonnet-4-20250514",
-    "summary": "anthropic/claude-haiku-4-5-20251001",
-    "embedding": "openai/text-embedding-3-small",
-    "categorize": "anthropic/claude-haiku-4-5-20251001",
-    "direct_line_card": "anthropic/claude-haiku-4-5-20251001",
-    "direct_line_followup": "anthropic/claude-sonnet-4-20250514",
-    "direct_line_anonymize": "anthropic/claude-haiku-4-5-20251001",
+    "qa": "grok-2",
+    "audit": "grok-2",
+    "task_review": "grok-2",
+    "summary": "grok-2",
+    "embedding": "google/gemini-embedding-001",
+    "categorize": "grok-2",
+    "direct_line_card": "grok-2",
+    "direct_line_followup": "grok-2",
+    "direct_line_anonymize": "grok-2",
 }
 
 # Tier limits

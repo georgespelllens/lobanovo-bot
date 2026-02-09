@@ -191,12 +191,18 @@ async def get_qa_response(
         "lead": "Руководитель",
     }
 
-    formatted_prompt = system_prompt.format(
-        retrieved_posts=_format_posts_context(retrieved_posts),
-        user_level=level_map.get(user_level, user_level),
-        user_goal=goal_map.get(user_goal, user_goal or "Не указана"),
-        user_role=role_map.get(user_role, user_role or "Не указана"),
-    )
+    format_kwargs = {
+        "retrieved_posts": _format_posts_context(retrieved_posts),
+        "user_level": level_map.get(user_level, user_level),
+        "user_goal": goal_map.get(user_goal, user_goal or "Не указана"),
+        "user_role": role_map.get(user_role, user_role or "Не указана"),
+    }
+
+    try:
+        formatted_prompt = system_prompt.format(**format_kwargs)
+    except (KeyError, IndexError, ValueError) as e:
+        logger.warning(f"System prompt format error: {e}. Using default prompt.")
+        formatted_prompt = QA_SYSTEM_PROMPT.format(**format_kwargs)
 
     # 5. Build messages
     messages = [{"role": "system", "content": formatted_prompt}]

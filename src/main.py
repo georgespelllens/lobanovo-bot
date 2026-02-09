@@ -84,6 +84,7 @@ def create_bot_application() -> Application:
 
     # ─── Messages ───
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_photo_or_document))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Regex(r"^/"), handle_unknown_command))
 
@@ -149,8 +150,48 @@ async def handle_feedback(update: Update, context) -> None:
         )
 
 
+async def handle_photo_or_document(update: Update, context) -> None:
+    """Handle photo/document messages — extract caption and route."""
+    caption = update.message.caption
+    if not caption or not caption.strip():
+        # No caption — tell user to send text
+        from src.database.connection import get_session
+        from src.database.repository import get_or_create_user
+
+        async with get_session() as session:
+            user = await get_or_create_user(
+                session, telegram_id=update.effective_user.id
+            )
+            mode = user.current_mode or "qa"
+
+        if mode == "audit":
+            await update.message.reply_text(
+                "📷 Вижу фото/файл, но без текста.\n"
+                "Пришли текст поста обычным сообщением — я его разберу."
+            )
+        else:
+            await update.message.reply_text(
+                "📷 Вижу фото/файл, но мне нужен текст.\n"
+                "Напиши свой вопрос текстом или голосовым."
+            )
+        return
+
+    # Has caption — route as regular text message
+    logger.info(f"Processing photo/document caption ({len(caption)} chars) from user {update.effective_user.id}")
+    await _route_text_to_handler(update, context, caption)
+
+
 async def handle_message(update: Update, context) -> None:
     """Route text messages based on user mode."""
+    text = update.message.text
+    if not text:
+        return
+
+    await _route_text_to_handler(update, context, text)
+
+
+async def _route_text_to_handler(update: Update, context, text: str) -> None:
+    """Shared routing logic for text messages and photo captions."""
     from src.database.connection import get_session
     from src.database.repository import get_or_create_user
     from src.bot.handlers.qa import handle_qa_message
@@ -158,10 +199,6 @@ async def handle_message(update: Update, context) -> None:
     from src.services.task_service import review_task_submission
     from src.database.repository import get_user_active_tasks
     from src.services.direct_line_service import submit_question, generate_admin_card
-
-    text = update.message.text
-    if not text:
-        return
 
     tg_user = update.effective_user
 

@@ -1,6 +1,5 @@
-"""LLM service for OpenRouter API calls."""
+"""LLM service: xAI Grok for chat, OpenRouter/Gemini for embeddings."""
 
-import os
 from typing import Optional
 from openai import AsyncOpenAI
 
@@ -8,39 +7,44 @@ from src.config import get_settings, MODELS
 from src.utils.logger import logger
 
 
-_client: Optional[AsyncOpenAI] = None
+_llm_client: Optional[AsyncOpenAI] = None
+_embedding_client: Optional[AsyncOpenAI] = None
 
 
 def get_llm_client() -> AsyncOpenAI:
-    """Get or create OpenRouter async client."""
-    global _client
-    if _client is None:
+    """Get or create xAI Grok client for chat completions."""
+    global _llm_client
+    if _llm_client is None:
         settings = get_settings()
-        _client = AsyncOpenAI(
+        _llm_client = AsyncOpenAI(
+            base_url="https://api.x.ai/v1",
+            api_key=settings.xai_api_key,
+        )
+    return _llm_client
+
+
+def _get_embedding_client() -> AsyncOpenAI:
+    """Get OpenRouter client for embeddings (Gemini Embedding)."""
+    global _embedding_client
+    if _embedding_client is None:
+        settings = get_settings()
+        _embedding_client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=settings.openrouter_api_key,
         )
-    return _client
-
-
-def _get_openai_client() -> AsyncOpenAI:
-    """Get OpenAI client for embeddings."""
-    settings = get_settings()
-    return AsyncOpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=settings.openrouter_api_key,
-    )
+    return _embedding_client
 
 
 def calculate_cost(usage, model: str) -> float:
-    """Estimate cost based on model and usage."""
-    # Approximate costs per 1M tokens (input/output)
+    """Estimate cost based on model and usage (per 1M tokens)."""
     costs = {
-        "anthropic/claude-sonnet-4-20250514": (3.0, 15.0),
-        "anthropic/claude-haiku-4-5-20251001": (0.25, 1.25),
-        "openai/text-embedding-3-small": (0.02, 0.0),
+        "grok-2": (1.0, 4.0),
+        "grok-3": (2.0, 8.0),
+        "grok-4": (2.0, 8.0),
+        "grok-3-mini": (0.5, 2.0),
+        "google/gemini-embedding-001": (0.15, 0.0),
     }
-    rates = costs.get(model, (3.0, 15.0))
+    rates = costs.get(model, (1.0, 4.0))
     input_cost = (usage.prompt_tokens / 1_000_000) * rates[0]
     output_cost = (usage.completion_tokens / 1_000_000) * rates[1]
     return round(input_cost + output_cost, 6)
@@ -52,9 +56,8 @@ async def call_llm(
     max_tokens: int = 2000,
     temperature: float = 0.7,
 ) -> dict:
-    """Call LLM via OpenRouter with fallback."""
+    """Call LLM via xAI Grok API."""
     client = get_llm_client()
-    settings = get_settings()
     model = MODELS.get(task_type, MODELS["qa"])
 
     try:
@@ -63,10 +66,6 @@ async def call_llm(
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            extra_headers={
-                "HTTP-Referer": settings.app_url,
-                "X-Title": settings.app_name,
-            },
         )
 
         return {
@@ -78,52 +77,37 @@ async def call_llm(
         }
 
     except Exception as e:
-        logger.error(f"OpenRouter error ({model}): {e}")
-        # Fallback to Haiku for non-critical tasks
-        if task_type in ("summary", "categorize", "direct_line_card"):
-            raise
-        if "claude-sonnet" in model:
-            logger.info("Falling back to Haiku")
-            fallback_model = "anthropic/claude-haiku-4-5-20251001"
-            try:
-                response = await client.chat.completions.create(
-                    model=fallback_model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    extra_headers={
-                        "HTTP-Referer": settings.app_url,
-                        "X-Title": settings.app_name,
-                    },
-                )
-                return {
-                    "content": response.choices[0].message.content,
-                    "tokens_input": response.usage.prompt_tokens,
-                    "tokens_output": response.usage.completion_tokens,
-                    "model": fallback_model,
-                    "cost": calculate_cost(response.usage, fallback_model),
-                }
-            except Exception as e2:
-                logger.error(f"Fallback also failed: {e2}")
-                raise
+        error_type = type(e).__name__
+        status_code = getattr(e, "status_code", None)
+        logger.error(
+            f"xAI Grok error ({model}): [{error_type}] status={status_code} {e}",
+            exc_info=True,
+        )
         raise
 
 
 async def get_embedding(text: str) -> list:
-    """Generate embedding for text via OpenRouter."""
-    client = _get_openai_client()
+    """Generate embedding for text via OpenRouter (google/gemini-embedding-001)."""
+    client = _get_embedding_client()
     settings = get_settings()
+    model = MODELS["embedding"]
 
-    # Truncate to ~8000 chars to stay within token limits
+    # Gemini embedding max ~2048 tokens; truncate to ~8000 chars
     text = text[:8000]
 
-    response = await client.embeddings.create(
-        model=MODELS["embedding"],
-        input=text,
-        extra_headers={
-            "HTTP-Referer": settings.app_url,
-            "X-Title": settings.app_name,
-        },
-    )
-
-    return response.data[0].embedding
+    try:
+        response = await client.embeddings.create(
+            model=model,
+            input=text,
+            extra_headers={
+                "HTTP-Referer": settings.app_url,
+                "X-Title": settings.app_name,
+            },
+        )
+        return response.data[0].embedding
+    except Exception as e:
+        logger.error(
+            f"Embedding error ({model}): [{type(e).__name__}] "
+            f"status={getattr(e, 'status_code', None)} {e}"
+        )
+        raise
