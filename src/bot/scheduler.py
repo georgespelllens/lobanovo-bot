@@ -1,6 +1,6 @@
 """Scheduled tasks — weekly assignments, reminders, deadlines."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -116,32 +116,52 @@ async def send_task_reminders():
 
 
 async def check_direct_line_deadlines():
-    """Check for overdue Direct Line questions."""
+    """Check for overdue Direct Line questions.
+    
+    Auto-refund is calculated from created_at (not deadline_at) using
+    settings.direct_line_auto_refund_hours (96h = 4 days by default).
+    """
     logger.info("Checking DL deadlines...")
 
     from src.config import get_settings
+    from src.database.models import DirectQuestion, User
+    from sqlalchemy import select, and_
 
     settings = get_settings()
+    auto_refund_cutoff = datetime.now(timezone.utc) - timedelta(
+        hours=settings.direct_line_auto_refund_hours
+    )
 
     async with get_session() as session:
-        overdue = await get_overdue_direct_questions(session)
-
-        for dq in overdue:
-            hours_overdue = (datetime.utcnow() - dq.deadline_at).total_seconds() / 3600
-
-            user = await session.get(
-                type(dq).__mapper__.relationships["user"].mapper.class_,
-                dq.user_id,
+        # Get all questions awaiting response
+        result = await session.execute(
+            select(DirectQuestion).where(
+                DirectQuestion.status == "question_sent",
             )
+        )
+        pending_questions = result.scalars().all()
 
-            if hours_overdue >= settings.direct_line_auto_refund_hours - (
-                settings.direct_line_response_deadline_hours
-            ):
-                # Auto refund
+        refunded_count = 0
+        reminded_count = 0
+
+        for dq in pending_questions:
+            # Make created_at timezone-aware if it isn't already
+            created = dq.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            hours_since_created = (datetime.now(timezone.utc) - created).total_seconds() / 3600
+
+            user = await session.get(User, dq.user_id)
+
+            if dq.created_at <= auto_refund_cutoff:
+                # Auto refund — past the auto_refund_hours threshold
                 dq.status = "refunded"
-                logger.warning(f"Auto-refund DL #{dq.id} — {hours_overdue:.0f}h overdue")
+                refunded_count += 1
+                logger.warning(
+                    f"Auto-refund DL #{dq.id} — {hours_since_created:.0f}h since created"
+                )
 
-                if _bot:
+                if _bot and user:
                     try:
                         await _bot.send_message(
                             chat_id=user.telegram_id,
@@ -157,19 +177,28 @@ async def check_direct_line_deadlines():
                         )
                     except Exception:
                         pass
-            else:
-                # Remind admin
+            elif dq.deadline_at and datetime.now(timezone.utc) > (
+                dq.deadline_at if dq.deadline_at.tzinfo else dq.deadline_at.replace(tzinfo=timezone.utc)
+            ):
+                # Past response deadline but not yet at auto-refund — remind admin
+                hours_remaining = (
+                    settings.direct_line_auto_refund_hours - hours_since_created
+                )
+                reminded_count += 1
+
                 if _bot:
                     try:
                         await _bot.send_message(
                             chat_id=settings.admin_chat_id,
                             text=(
                                 f"⏰ Напоминание: Прямая линия #{dq.id} "
-                                f"ожидает ответа уже {hours_overdue:.0f} часов.\n"
-                                f"Автовозврат через {settings.direct_line_auto_refund_hours - hours_overdue:.0f}ч."
+                                f"ожидает ответа уже {hours_since_created:.0f} часов.\n"
+                                f"Автовозврат через {max(0, hours_remaining):.0f}ч."
                             ),
                         )
                     except Exception:
                         pass
 
-    logger.info(f"DL deadline check complete, {len(overdue)} overdue")
+    logger.info(
+        f"DL deadline check complete: {refunded_count} refunded, {reminded_count} reminded"
+    )

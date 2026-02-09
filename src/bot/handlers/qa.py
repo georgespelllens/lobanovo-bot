@@ -1,6 +1,6 @@
 """Q&A handler — main conversational mode."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -112,14 +112,14 @@ async def handle_qa_message(
 
         # Increment usage
         increment_usage(user, "questions")
-        user.last_interaction = datetime.utcnow()
+        user.last_interaction = datetime.now(timezone.utc)
 
         # Send response with rating buttons
         keyboard = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("👍", callback_data=f"rate_up_{bot_msg.id}"),
-                    InlineKeyboardButton("👎", callback_data=f"rate_down_{bot_msg.id}"),
+                    InlineKeyboardButton("👍", callback_data=f"rate:up:{bot_msg.id}"),
+                    InlineKeyboardButton("👎", callback_data=f"rate:down:{bot_msg.id}"),
                 ]
             ]
         )

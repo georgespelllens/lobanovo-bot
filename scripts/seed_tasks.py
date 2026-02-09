@@ -214,8 +214,16 @@ TASKS = [
 
 
 async def seed():
-    """Seed task templates."""
+    """Seed task templates (idempotent — clears existing before inserting)."""
+    from sqlalchemy import text
+
     async with get_session() as session:
+        # Clear existing templates for idempotency
+        result = await session.execute(text("DELETE FROM task_templates"))
+        deleted = result.rowcount
+        if deleted:
+            print(f"🗑 Удалено {deleted} существующих шаблонов")
+
         for task_data in TASKS:
             template = TaskTemplate(**task_data)
             session.add(template)

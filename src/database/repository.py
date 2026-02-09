@@ -1,8 +1,9 @@
 """Database CRUD operations."""
 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Optional, List
 
+import numpy as np
 from sqlalchemy import select, update, func, desc, and_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,25 +90,60 @@ async def search_knowledge_base(
     limit: int = 5,
     min_quality: float = 0.3,
 ) -> List[KnowledgeBase]:
-    """Search knowledge base by vector similarity.
-    
-    NOTE: Currently uses quality_score ordering as fallback because
-    pgvector is not available. When pgvector is installed, switch
-    embedding column to Vector(1536) and use cosine_distance.
+    """Search knowledge base by cosine similarity (Python-side).
+
+    Loads all active posts with embeddings and computes cosine similarity
+    against the query embedding. Returns top-N most similar posts.
+
+    NOTE: For 3000+ posts this is O(n) per query. When pgvector is available,
+    switch to server-side cosine_distance for better performance.
     """
     result = await session.execute(
-        select(KnowledgeBase)
-        .where(
+        select(KnowledgeBase).where(
             and_(
                 KnowledgeBase.is_active == True,
                 KnowledgeBase.embedding.isnot(None),
                 KnowledgeBase.quality_score >= min_quality,
             )
         )
-        .order_by(KnowledgeBase.quality_score.desc())
-        .limit(limit)
     )
-    return result.scalars().all()
+    posts = result.scalars().all()
+
+    if not posts or not embedding:
+        # Fallback to quality_score ordering if no embedding provided
+        result = await session.execute(
+            select(KnowledgeBase)
+            .where(
+                and_(
+                    KnowledgeBase.is_active == True,
+                    KnowledgeBase.quality_score >= min_quality,
+                )
+            )
+            .order_by(KnowledgeBase.quality_score.desc())
+            .limit(limit)
+        )
+        return result.scalars().all()
+
+    # Python-side cosine similarity
+    query_vec = np.array(embedding, dtype=np.float32)
+    query_norm = np.linalg.norm(query_vec)
+    if query_norm == 0:
+        return posts[:limit]
+
+    scored = []
+    for post in posts:
+        try:
+            post_vec = np.array(post.embedding, dtype=np.float32)
+            post_norm = np.linalg.norm(post_vec)
+            if post_norm == 0:
+                continue
+            similarity = float(np.dot(query_vec, post_vec) / (query_norm * post_norm))
+            scored.append((similarity, post))
+        except (TypeError, ValueError):
+            continue
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [post for _, post in scored[:limit]]
 
 
 async def add_knowledge_entry(session: AsyncSession, **kwargs) -> KnowledgeBase:
@@ -137,7 +173,7 @@ async def get_or_create_conversation(
 ) -> Conversation:
     """Get active conversation or create a new one."""
     # Check for active conversation (last message within 30 minutes)
-    threshold = datetime.utcnow() - timedelta(minutes=30)
+    threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
     result = await session.execute(
         select(Conversation)
         .where(
@@ -199,7 +235,7 @@ async def save_message(session: AsyncSession, **kwargs) -> Message:
             update(Conversation)
             .where(Conversation.id == msg.conversation_id)
             .values(
-                last_message_at=datetime.utcnow(),
+                last_message_at=datetime.now(timezone.utc),
                 message_count=Conversation.message_count + 1,
             )
         )
@@ -370,7 +406,8 @@ async def get_direct_question(session: AsyncSession, dq_id: int) -> Optional[Dir
 
 async def get_weekly_direct_questions_count(session: AsyncSession) -> int:
     """Get number of direct questions this week."""
-    week_start = datetime.utcnow() - timedelta(days=datetime.utcnow().weekday())
+    now = datetime.now(timezone.utc)
+    week_start = now - timedelta(days=now.weekday())
     week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
     result = await session.execute(
         select(func.count(DirectQuestion.id))
@@ -396,13 +433,13 @@ async def get_pending_direct_questions(session: AsyncSession) -> List[DirectQues
 
 async def get_overdue_direct_questions(session: AsyncSession) -> List[DirectQuestion]:
     """Get questions past their deadline."""
-    now = datetime.utcnow()
+    now_utc = datetime.now(timezone.utc)
     result = await session.execute(
         select(DirectQuestion)
         .where(
             and_(
                 DirectQuestion.status == "question_sent",
-                DirectQuestion.deadline_at <= now,
+                DirectQuestion.deadline_at <= now_utc,
             )
         )
     )
@@ -418,14 +455,14 @@ async def get_admin_stats(session: AsyncSession) -> dict:
     total_users = total_users.scalar()
 
     # Active users (last 7 days)
-    week_ago = datetime.utcnow() - timedelta(days=7)
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     active_users = await session.execute(
         select(func.count(User.id)).where(User.last_interaction >= week_ago)
     )
     active_users = active_users.scalar()
 
     # Total messages today
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     today_messages = await session.execute(
         select(func.count(Message.id)).where(Message.created_at >= today_start)
     )

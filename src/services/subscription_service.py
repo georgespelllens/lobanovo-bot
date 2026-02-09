@@ -1,6 +1,6 @@
 """Subscription management service."""
 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,7 +57,7 @@ async def activate_subscription(
     confirmed_by_id: Optional[int] = None,
 ) -> Subscription:
     """Activate a subscription for a user."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     expires = now + timedelta(days=30 * months)
 
     # Pricing
@@ -90,7 +90,7 @@ async def check_subscription_expiry(session: AsyncSession, user: User) -> bool:
     if user.subscription_tier == "free":
         return True
 
-    if user.subscription_expires_at and user.subscription_expires_at < datetime.utcnow():
+    if user.subscription_expires_at and user.subscription_expires_at < datetime.now(timezone.utc):
         # Expired — downgrade to free
         user.subscription_tier = "free"
         user.subscription_expires_at = None

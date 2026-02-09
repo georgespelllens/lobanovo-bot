@@ -20,10 +20,6 @@ _has_pgvector = False
 def upgrade() -> None:
     global _has_pgvector
 
-    # #region agent log
-    print("[DEBUG][H1] upgrade() started — checking pgvector availability")
-    # #endregion
-
     # Check if pgvector extension is available before trying to create it
     # (attempting CREATE EXTENSION on unavailable ext poisons the transaction)
     conn = op.get_bind()
@@ -32,21 +28,11 @@ def upgrade() -> None:
     )
     pgvector_available = result.scalar() is not None
 
-    # #region agent log
-    print(f"[DEBUG][H1] pgvector available in pg_available_extensions: {pgvector_available}")
-    # #endregion
-
     if pgvector_available:
         op.execute("CREATE EXTENSION IF NOT EXISTS vector")
         _has_pgvector = True
-        # #region agent log
-        print("[DEBUG][H1] pgvector extension created/confirmed")
-        # #endregion
     else:
         _has_pgvector = False
-        # #region agent log
-        print("[DEBUG][H1] pgvector NOT available — using JSONB fallback for embeddings")
-        # #endregion
 
     # Users
     op.create_table(
@@ -98,7 +84,7 @@ def upgrade() -> None:
     ]
     if _has_pgvector:
         from pgvector.sqlalchemy import Vector
-        kb_columns.append(sa.Column("embedding", Vector(1536)))
+        kb_columns.append(sa.Column("embedding", Vector(768)))
     else:
         # Store as JSON array when pgvector is not available
         kb_columns.append(sa.Column("embedding", postgresql.JSONB()))
@@ -289,9 +275,6 @@ def upgrade() -> None:
     op.create_index("idx_dq_user", "direct_questions", ["user_id"])
     op.create_index("idx_dq_status", "direct_questions", ["status"])
 
-    # #region agent log
-    print("[DEBUG][H1][H2] ALL TABLES CREATED SUCCESSFULLY")
-    # #endregion
 
 
 def downgrade() -> None:

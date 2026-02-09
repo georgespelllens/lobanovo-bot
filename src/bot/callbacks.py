@@ -26,8 +26,8 @@ async def handle_rating(
     query = update.callback_query
     await query.answer()
 
-    data = query.data  # rate_up_MSGID or rate_down_MSGID
-    parts = data.split("_")
+    data = query.data  # rate:up:MSGID or rate:down:MSGID
+    parts = data.split(":")
     if len(parts) < 3:
         return
 
@@ -54,21 +54,21 @@ async def handle_rating(
                 [
                     [
                         InlineKeyboardButton(
-                            "Не по теме", callback_data=f"reason_off_topic_{msg_id}"
+                            "Не по теме", callback_data=f"reason:off_topic:{msg_id}"
                         ),
                         InlineKeyboardButton(
                             "Слишком общий",
-                            callback_data=f"reason_too_general_{msg_id}",
+                            callback_data=f"reason:too_general:{msg_id}",
                         ),
                     ],
                     [
                         InlineKeyboardButton(
                             "Неправильный совет",
-                            callback_data=f"reason_wrong_advice_{msg_id}",
+                            callback_data=f"reason:wrong_advice:{msg_id}",
                         ),
                         InlineKeyboardButton(
                             "Хочу к Косте",
-                            callback_data=f"reason_want_human_{msg_id}",
+                            callback_data=f"reason:want_human:{msg_id}",
                         ),
                     ],
                 ]
@@ -92,8 +92,8 @@ async def handle_rating_reason(
     query = update.callback_query
     await query.answer()
 
-    data = query.data  # reason_REASON_MSGID
-    parts = data.split("_", 2)
+    data = query.data  # reason:REASON:MSGID
+    parts = data.split(":", 2)
     if len(parts) < 3:
         return
 
@@ -128,13 +128,13 @@ async def handle_subscription_confirm(
     query = update.callback_query
     await query.answer()
 
-    data = query.data  # confirm_sub_USERID_TIER
-    parts = data.split("_")
-    if len(parts) < 4:
+    data = query.data  # confirm_sub:USERID:TIER
+    parts = data.split(":")
+    if len(parts) < 3:
         return
 
-    target_tg_id = int(parts[2])
-    tier = parts[3]
+    target_tg_id = int(parts[1])
+    tier = parts[2]
 
     async with get_session() as session:
         from src.database.repository import get_user_by_telegram_id
@@ -164,26 +164,85 @@ async def handle_subscription_confirm(
     )
 
 
+async def handle_task_submit_confirm(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle task submission confirmation callback."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data  # submit_task:TASK_ID
+    parts = data.split(":")
+    if len(parts) < 2:
+        return
+
+    task_id = int(parts[1])
+    submission_text = context.user_data.pop("pending_submission_text", None)
+
+    if not submission_text:
+        await query.edit_message_text("Текст задания не найден. Пришли его ещё раз.")
+        return
+
+    from src.services.task_service import review_task_submission
+    from src.database.repository import get_or_create_user
+
+    tg_user = update.effective_user
+
+    async with get_session() as session:
+        user = await get_or_create_user(session, telegram_id=tg_user.id)
+
+        # Find the task
+        from src.database.models import UserTask
+        task = await session.get(UserTask, task_id)
+        if not task or task.user_id != user.id:
+            await query.edit_message_text("Задание не найдено.")
+            return
+
+        result = await review_task_submission(session, task, submission_text)
+
+        response = result["review_text"]
+        response += f"\n\n⭐ +{result['xp_earned']} XP"
+        response += f"\n📊 Итого: {result['total_xp']} XP"
+
+        if result.get("level_up"):
+            level_emoji = {
+                "wolfling": "🐺 Волчонок",
+                "wolf": "🐺🔥 Волк",
+            }
+            new_level = level_emoji.get(result.get("level", ""), result.get("level", ""))
+            response += f"\n\n🎉 Поздравляю! Ты теперь {new_level}!"
+
+    await query.edit_message_text(response)
+
+    # Clean up user_data
+    context.user_data.pop("pending_submission_task_id", None)
+
+
 async def route_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Route callback queries to appropriate handlers."""
     data = update.callback_query.data
 
-    if data.startswith("rate_"):
+    if data.startswith("rate:"):
         await handle_rating(update, context)
-    elif data.startswith("reason_"):
+    elif data.startswith("reason:"):
         await handle_rating_reason(update, context)
-    elif data.startswith("onboard_"):
+    elif data.startswith("onboard:"):
         await handle_onboarding_callback(update, context)
-    elif data.startswith("pay_"):
+    elif data.startswith("pay:"):
         await handle_payment_callback(update, context)
-    elif data.startswith("dl_"):
+    elif data.startswith("dl:"):
         await handle_direct_line_callback(update, context)
-    elif data.startswith("adl_"):
+    elif data.startswith("adl:"):
         await handle_admin_direct_line_callback(update, context)
-    elif data.startswith("confirm_sub_"):
+    elif data.startswith("confirm_sub:"):
         await handle_subscription_confirm(update, context)
+    elif data.startswith("submit_task:"):
+        await handle_task_submit_confirm(update, context)
+    elif data == "continue_qa":
+        await update.callback_query.answer("Ок, отвечаю как обычно")
+        # Re-route as QA — just acknowledge, next message will be routed normally
     else:
         logger.warning(f"Unknown callback data: {data}")
         await update.callback_query.answer("Неизвестная команда")

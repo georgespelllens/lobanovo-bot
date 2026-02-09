@@ -46,12 +46,12 @@ async def handle_consult_command(
         [
             [
                 InlineKeyboardButton(
-                    "Pro — 990₽/мес", callback_data="pay_pro"
+                    "Pro — 990₽/мес", callback_data="pay:pro"
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    "Premium — 4990₽/мес", callback_data="pay_premium"
+                    "Premium — 4990₽/мес", callback_data="pay:premium"
                 ),
             ],
         ]
@@ -67,8 +67,8 @@ async def handle_payment_callback(
     query = update.callback_query
     await query.answer()
 
-    data = query.data  # pay_pro or pay_premium
-    tier = data.replace("pay_", "")
+    data = query.data  # pay:pro or pay:premium
+    tier = data.replace("pay:", "")
     prices = {"pro": 990, "premium": 4990}
     price = prices.get(tier, 990)
     tier_name = {"pro": "Pro 🐺", "premium": "Premium 🐺🔥"}.get(tier, tier)
@@ -101,7 +101,7 @@ async def handle_payment_callback(
                     [
                         InlineKeyboardButton(
                             "✅ Подтвердить",
-                            callback_data=f"confirm_sub_{tg_user.id}_{tier}",
+                            callback_data=f"confirm_sub:{tg_user.id}:{tier}",
                         ),
                     ]
                 ]

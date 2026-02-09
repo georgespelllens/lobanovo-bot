@@ -1,5 +1,7 @@
 """Application configuration via Pydantic Settings."""
 
+from functools import lru_cache
+
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from typing import List, Optional
@@ -118,6 +120,7 @@ TIER_LIMITS = {
 }
 
 
+@lru_cache()
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()

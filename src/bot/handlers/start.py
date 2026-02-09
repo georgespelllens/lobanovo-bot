@@ -95,9 +95,6 @@ def determine_level(role: str, has_blog: str, hours: int) -> str:
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
-    # #region agent log
-    logger.warning(f"[DEBUG][H3] handle_start ENTERED for user {update.effective_user.id}")
-    # #endregion
     tg_user = update.effective_user
 
     try:
@@ -109,9 +106,6 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 first_name=tg_user.first_name,
                 last_name=tg_user.last_name,
             )
-            # #region agent log
-            logger.warning(f"[DEBUG][H3] get_or_create_user OK: user.id={user.id}, onboarding={user.onboarding_completed}")
-            # #endregion
 
             if user.onboarding_completed:
                 # Returning user
@@ -144,9 +138,7 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             # Send first question
             await send_onboarding_question(update, context, step=1)
     except Exception as e:
-        # #region agent log
-        logger.warning(f"[DEBUG][H3] handle_start EXCEPTION: {type(e).__name__}: {e}")
-        # #endregion
+        logger.error(f"handle_start error for user {tg_user.id}: {type(e).__name__}: {e}")
         raise
 
 
@@ -161,7 +153,7 @@ async def send_onboarding_question(
     keyboard = []
     for label, value in q["options"]:
         keyboard.append(
-            [InlineKeyboardButton(label, callback_data=f"onboard_{step}_{value}")]
+            [InlineKeyboardButton(label, callback_data=f"onboard:{step}:{value}")]
         )
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -181,8 +173,8 @@ async def handle_onboarding_callback(
     query = update.callback_query
     await query.answer()
 
-    data = query.data  # format: onboard_STEP_VALUE
-    parts = data.split("_", 2)
+    data = query.data  # format: onboard:STEP:VALUE
+    parts = data.split(":", 2)
     if len(parts) < 3:
         return
 

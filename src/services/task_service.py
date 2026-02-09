@@ -1,6 +1,6 @@
 """Task assignment and XP management service."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,7 +35,7 @@ def get_level_for_xp(xp: int) -> str:
 
 def get_week_number() -> int:
     """Get current ISO week number."""
-    return datetime.utcnow().isocalendar()[1]
+    return datetime.now(timezone.utc).isocalendar()[1]
 
 
 async def assign_weekly_tasks(
@@ -85,8 +85,8 @@ async def review_task_submission(
 
     # Update user task
     user_task.status = "completed"
-    user_task.submitted_at = datetime.utcnow()
-    user_task.reviewed_at = datetime.utcnow()
+    user_task.submitted_at = datetime.now(timezone.utc)
+    user_task.reviewed_at = datetime.now(timezone.utc)
     user_task.submission_text = submission_text
     user_task.submission_type = "text"
     user_task.review_text = review_result["content"]

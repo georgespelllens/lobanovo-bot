@@ -191,30 +191,38 @@ async def handle_message(update: Update, context) -> None:
 
 
 async def _route_text_to_handler(update: Update, context, text: str) -> None:
-    """Shared routing logic for text messages and photo captions."""
+    """Shared routing logic for text messages and photo captions.
+    
+    Uses a single DB session for the entire handler to avoid consistency issues.
+    Direct Line state is checked via DB (not bot_data) to survive restarts.
+    """
     from src.database.connection import get_session
-    from src.database.repository import get_or_create_user
+    from src.database.repository import get_or_create_user, get_user_active_tasks
     from src.bot.handlers.qa import handle_qa_message
     from src.bot.handlers.audit import handle_audit_message
-    from src.services.task_service import review_task_submission
-    from src.database.repository import get_user_active_tasks
     from src.services.direct_line_service import submit_question, generate_admin_card
+    from src.database.models import DirectQuestion
+    from sqlalchemy import select
 
     tg_user = update.effective_user
+    settings = get_settings()
 
     async with get_session() as session:
         user = await get_or_create_user(session, telegram_id=tg_user.id)
         mode = user.current_mode or "qa"
 
-    # Check if user is in Direct Line question mode
-    dq_key = f"dq_awaiting_{tg_user.id}"
-    if dq_key in context.bot_data:
-        dq_id = context.bot_data.pop(dq_key)
-        settings = get_settings()
+        # Check if user has a paid Direct Line question awaiting input (DB-based, survives restarts)
+        dq_result = await session.execute(
+            select(DirectQuestion).where(
+                DirectQuestion.user_id == user.id,
+                DirectQuestion.status == "paid",
+            ).order_by(DirectQuestion.created_at.desc()).limit(1)
+        )
+        pending_dq = dq_result.scalar_one_or_none()
 
-        async with get_session() as session:
-            user = await get_or_create_user(session, telegram_id=tg_user.id)
-            dq = await submit_question(session, dq_id, question_text=text)
+        if pending_dq:
+            # Submit the DL question
+            dq = await submit_question(session, pending_dq.id, question_text=text)
 
             if dq:
                 # Generate admin card
@@ -232,21 +240,21 @@ async def _route_text_to_handler(update: Update, context, text: str) -> None:
                                 [
                                     InlineKeyboardButton(
                                         "✅ Ответил",
-                                        callback_data=f"adl_answered_{dq.id}",
+                                        callback_data=f"adl:answered:{dq.id}",
                                     ),
                                     InlineKeyboardButton(
                                         "⏭ Больше контекста",
-                                        callback_data=f"adl_morecontext_{dq.id}",
+                                        callback_data=f"adl:morecontext:{dq.id}",
                                     ),
                                 ],
                                 [
                                     InlineKeyboardButton(
                                         "↩️ Вернуть деньги",
-                                        callback_data=f"adl_refund_{dq.id}",
+                                        callback_data=f"adl:refund:{dq.id}",
                                     ),
                                     InlineKeyboardButton(
                                         "📚 В базу знаний",
-                                        callback_data=f"adl_addkb_{dq.id}",
+                                        callback_data=f"adl:addkb:{dq.id}",
                                     ),
                                 ],
                             ]
@@ -263,34 +271,36 @@ async def _route_text_to_handler(update: Update, context, text: str) -> None:
                     "Он получил твой профиль, историю наших разговоров и вопрос.\n"
                     "Ожидай ответ в течение 48 часов ⏳"
                 )
-        return
+            return
 
-    # Check if user is submitting a task
-    if mode == "qa":
-        async with get_session() as session:
-            user = await get_or_create_user(session, telegram_id=tg_user.id)
+        # Check if user has pending tasks and text looks like submission — ask for confirmation
+        if mode == "qa":
             active_tasks = await get_user_active_tasks(session, user.id)
             pending_tasks = [t for t in active_tasks if t.status == "assigned"]
 
-            # Heuristic: if text is long (>100 chars) and user has pending tasks,
-            # treat as task submission
             if pending_tasks and len(text) > 100:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
                 task = pending_tasks[0]
-                result = await review_task_submission(session, task, text)
+                # Store submission text in user_data for later use
+                context.user_data["pending_submission_text"] = text
+                context.user_data["pending_submission_task_id"] = task.id
 
-                response = result["review_text"]
-                response += f"\n\n⭐ +{result['xp_earned']} XP"
-                response += f"\n📊 Итого: {result['total_xp']} XP"
-
-                if result["level_up"]:
-                    level_emoji = {
-                        "wolfling": "🐺 Волчонок",
-                        "wolf": "🐺🔥 Волк",
-                    }
-                    new_level = level_emoji.get(result["level"], result["level"])
-                    response += f"\n\n🎉 Поздравляю! Ты теперь {new_level}!"
-
-                await update.message.reply_text(response)
+                await update.message.reply_text(
+                    "У тебя есть невыполненное задание. Это сдача задания или обычный вопрос?",
+                    reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton(
+                                "📝 Сдать задание",
+                                callback_data=f"submit_task:{task.id}",
+                            ),
+                            InlineKeyboardButton(
+                                "💬 Обычный вопрос",
+                                callback_data="continue_qa",
+                            ),
+                        ]
+                    ]),
+                )
                 return
 
     # Regular message routing
@@ -320,30 +330,15 @@ async def lifespan(app: FastAPI):
     engine = get_engine()
     logger.info("Database engine initialized")
 
-    # Create tables if they don't exist (Railway release phase may not run)
+    # Verify DB connectivity (tables are created by Alembic in release phase)
     from sqlalchemy import text as sa_text
-    from src.database.models import Base
-
     async with engine.begin() as conn:
-        # Check existing tables
         result = await conn.execute(sa_text("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
         tables = [row[0] for row in result.fetchall()]
-        # #region agent log
-        logger.warning(f"[DEBUG][H6] Tables before create_all: {tables}")
-        # #endregion
-
-        if "users" not in tables:
-            logger.info("Tables not found — creating via metadata.create_all")
-            await conn.run_sync(Base.metadata.create_all)
-            # Verify
-            result2 = await conn.execute(sa_text("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
-            tables2 = [row[0] for row in result2.fetchall()]
-            # #region agent log
-            logger.warning(f"[DEBUG][H6] Tables after create_all: {tables2}")
-            # #endregion
-            logger.info(f"Created {len(tables2)} tables: {tables2}")
-        else:
+        if "users" in tables:
             logger.info(f"Database OK — {len(tables)} tables found")
+        else:
+            logger.warning("Tables not found — ensure 'alembic upgrade head' has been run")
 
     # Initialize Telegram bot
     _bot_app = create_bot_application()
@@ -388,25 +383,14 @@ async def telegram_webhook(request: Request):
     global _bot_app
 
     if _bot_app is None:
-        # #region agent log
-        logger.warning("[DEBUG][H5] Webhook called but _bot_app is None!")
-        # #endregion
+        logger.error("Webhook called but _bot_app is None")
         return {"error": "Bot not initialized"}
 
     try:
         data = await request.json()
-        # #region agent log
-        logger.warning(f"[DEBUG][H4] Webhook received update: {data.get('update_id', 'no_id')}, message: {bool(data.get('message'))}")
-        # #endregion
         update = Update.de_json(data, _bot_app.bot)
         await _bot_app.process_update(update)
-        # #region agent log
-        logger.warning(f"[DEBUG][H4] process_update completed for update_id={data.get('update_id')}")
-        # #endregion
     except Exception as e:
-        # #region agent log
-        logger.warning(f"[DEBUG][H3][H4] Webhook exception: {type(e).__name__}: {e}")
-        # #endregion
         logger.error(f"Error processing webhook update: {e}", exc_info=True)
 
     return {"ok": True}
@@ -470,30 +454,3 @@ async def health_check():
     """Health check endpoint."""
     return {"status": "ok", "service": "lobanov-mentor-bot"}
 
-
-# #region agent log
-@app.get("/debug/db-check")
-async def debug_db_check():
-    """Debug endpoint: check if database tables exist."""
-    from sqlalchemy import text as sa_text
-    from src.database.connection import get_session
-    try:
-        async with get_session() as session:
-            result = await session.execute(sa_text("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
-            tables = [row[0] for row in result.fetchall()]
-            has_users = "users" in tables
-            # Check pgvector
-            try:
-                ext_result = await session.execute(sa_text("SELECT extname FROM pg_extension WHERE extname='vector'"))
-                has_pgvector = ext_result.scalar_one_or_none() is not None
-            except Exception:
-                has_pgvector = False
-            return {
-                "tables": tables,
-                "users_table_exists": has_users,
-                "pgvector_installed": has_pgvector,
-                "table_count": len(tables),
-            }
-    except Exception as e:
-        return {"error": str(e), "type": type(e).__name__}
-# #endregion

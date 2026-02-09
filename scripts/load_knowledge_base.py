@@ -108,7 +108,8 @@ def parse_md_channel(file_path: str) -> list:
 # ─── Load into DB ─────────────────────────────────────────
 
 async def load_posts(file_path: str, source: str, format: str = "html"):
-    """Load posts from a file into the database."""
+    """Load posts from a file into the database (idempotent — checks for duplicates by content hash)."""
+    import hashlib
 
     if format == "html":
         parser = TelegramHTMLParser()
@@ -123,7 +124,24 @@ async def load_posts(file_path: str, source: str, format: str = "html"):
     print(f"Найдено постов: {len(posts)} из {file_path}")
 
     async with get_session() as session:
+        # Get existing content hashes for this source to avoid duplicates
+        from sqlalchemy import select
+        existing_result = await session.execute(
+            select(KnowledgeBase.content).where(KnowledgeBase.source == source)
+        )
+        existing_hashes = {
+            hashlib.md5(row[0].encode()).hexdigest()
+            for row in existing_result.fetchall()
+        }
+
+        added = 0
+        skipped = 0
         for i, post in enumerate(posts):
+            content_hash = hashlib.md5(post["content"].encode()).hexdigest()
+            if content_hash in existing_hashes:
+                skipped += 1
+                continue
+
             date = post.get("date")
             if isinstance(date, str):
                 try:
@@ -138,12 +156,14 @@ async def load_posts(file_path: str, source: str, format: str = "html"):
                 is_active=True,
             )
             session.add(kb_entry)
+            existing_hashes.add(content_hash)
+            added += 1
 
-            if i % 50 == 0 and i > 0:
+            if added % 50 == 0 and added > 0:
                 await session.flush()
-                print(f"  Загружено: {i}/{len(posts)}")
+                print(f"  Загружено: {added}/{len(posts)}")
 
-    print(f"✅ Загружено {len(posts)} постов из {source}")
+    print(f"✅ Загружено {added} новых постов из {source} (пропущено дубликатов: {skipped})")
 
 
 async def load_all():

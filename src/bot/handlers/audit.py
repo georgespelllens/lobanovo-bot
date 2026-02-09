@@ -1,6 +1,6 @@
 """Audit handler — post review mode."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -112,18 +112,18 @@ async def handle_audit_message(
 
         # Increment usage
         increment_usage(user, "audits")
-        user.last_interaction = datetime.utcnow()
+        user.last_interaction = datetime.now(timezone.utc)
 
         # Send response with rating and rewrite buttons
         keyboard = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("👍", callback_data=f"rate_up_{bot_msg.id}"),
-                    InlineKeyboardButton("👎", callback_data=f"rate_down_{bot_msg.id}"),
+                    InlineKeyboardButton("👍", callback_data=f"rate:up:{bot_msg.id}"),
+                    InlineKeyboardButton("👎", callback_data=f"rate:down:{bot_msg.id}"),
                 ],
                 [
                     InlineKeyboardButton(
-                        "✍️ Перепиши пост", callback_data=f"rewrite_{bot_msg.id}"
+                        "✍️ Перепиши пост", callback_data=f"rewrite:{bot_msg.id}"
                     ),
                 ],
             ]

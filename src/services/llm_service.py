@@ -1,5 +1,9 @@
-"""LLM service: xAI Grok for chat, OpenRouter/Gemini for embeddings."""
+"""LLM service: xAI Grok for chat, OpenRouter/Gemini for embeddings.
 
+Includes retry logic and fallback models for resilience.
+"""
+
+import asyncio
 from typing import Optional
 from openai import AsyncOpenAI
 
@@ -9,6 +13,17 @@ from src.utils.logger import logger
 
 _llm_client: Optional[AsyncOpenAI] = None
 _embedding_client: Optional[AsyncOpenAI] = None
+
+# Fallback models: primary -> fallback
+FALLBACK_MODELS = {
+    "grok-4": "grok-3",
+    "grok-4-1-fast-non-reasoning": "grok-3-mini",
+    "grok-4-1-fast-reasoning": "grok-3-mini",
+}
+
+# Max retry attempts per model
+MAX_RETRIES = 2
+RETRY_DELAY_SECONDS = 1.0
 
 
 def get_llm_client() -> AsyncOpenAI:
@@ -51,44 +66,94 @@ def calculate_cost(usage, model: str) -> float:
     return round(input_cost + output_cost, 6)
 
 
+async def _call_single(
+    client: AsyncOpenAI,
+    model: str,
+    messages: list,
+    max_tokens: int,
+    temperature: float,
+) -> dict:
+    """Call a single LLM model with retry logic."""
+    last_error = None
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return {
+                "content": response.choices[0].message.content,
+                "tokens_input": response.usage.prompt_tokens,
+                "tokens_output": response.usage.completion_tokens,
+                "model": model,
+                "cost": calculate_cost(response.usage, model),
+            }
+        except Exception as e:
+            last_error = e
+            status_code = getattr(e, "status_code", None)
+
+            # Don't retry on 4xx errors (except 429 rate limit)
+            if status_code and 400 <= status_code < 500 and status_code != 429:
+                raise
+
+            logger.warning(
+                f"LLM attempt {attempt + 1}/{MAX_RETRIES} failed for {model}: "
+                f"[{type(e).__name__}] status={status_code}"
+            )
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY_SECONDS * (attempt + 1))
+
+    raise last_error
+
+
 async def call_llm(
     messages: list,
     task_type: str = "qa",
     max_tokens: int = 2000,
     temperature: float = 0.7,
 ) -> dict:
-    """Call LLM via xAI Grok API."""
+    """Call LLM with retry and fallback model support.
+    
+    Tries the primary model first with retries, then falls back to
+    an alternative model if the primary fails.
+    """
     client = get_llm_client()
     model = MODELS.get(task_type, MODELS["qa"])
+    fallback = FALLBACK_MODELS.get(model)
 
+    # Try primary model
     try:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
+        return await _call_single(client, model, messages, max_tokens, temperature)
+    except Exception as primary_error:
+        logger.warning(
+            f"Primary model {model} failed: {type(primary_error).__name__}: {primary_error}"
         )
 
-        return {
-            "content": response.choices[0].message.content,
-            "tokens_input": response.usage.prompt_tokens,
-            "tokens_output": response.usage.completion_tokens,
-            "model": model,
-            "cost": calculate_cost(response.usage, model),
-        }
+        # Try fallback model
+        if fallback:
+            try:
+                logger.info(f"Trying fallback model: {fallback}")
+                return await _call_single(
+                    client, fallback, messages, max_tokens, temperature
+                )
+            except Exception as fallback_error:
+                logger.error(
+                    f"Fallback model {fallback} also failed: "
+                    f"{type(fallback_error).__name__}: {fallback_error}"
+                )
 
-    except Exception as e:
-        error_type = type(e).__name__
-        status_code = getattr(e, "status_code", None)
-        logger.error(
-            f"xAI Grok error ({model}): [{error_type}] status={status_code} {e}",
-            exc_info=True,
-        )
-        raise
+        # All models failed
+        raise primary_error
 
 
 async def get_embedding(text: str) -> list:
-    """Generate embedding for text via OpenRouter (google/gemini-embedding-001)."""
+    """Generate embedding for text via OpenRouter (google/gemini-embedding-001).
+    
+    Includes retry logic for transient failures.
+    """
     client = _get_embedding_client()
     settings = get_settings()
     model = MODELS["embedding"]
@@ -96,19 +161,28 @@ async def get_embedding(text: str) -> list:
     # Gemini embedding max ~2048 tokens; truncate to ~8000 chars
     text = text[:8000]
 
-    try:
-        response = await client.embeddings.create(
-            model=model,
-            input=text,
-            extra_headers={
-                "HTTP-Referer": settings.app_url,
-                "X-Title": settings.app_name,
-            },
-        )
-        return response.data[0].embedding
-    except Exception as e:
-        logger.error(
-            f"Embedding error ({model}): [{type(e).__name__}] "
-            f"status={getattr(e, 'status_code', None)} {e}"
-        )
-        raise
+    last_error = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = await client.embeddings.create(
+                model=model,
+                input=text,
+                extra_headers={
+                    "HTTP-Referer": settings.app_url,
+                    "X-Title": settings.app_name,
+                },
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            last_error = e
+            status_code = getattr(e, "status_code", None)
+            if status_code and 400 <= status_code < 500 and status_code != 429:
+                raise
+            logger.warning(
+                f"Embedding attempt {attempt + 1}/{MAX_RETRIES} failed: "
+                f"[{type(e).__name__}] status={status_code}"
+            )
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY_SECONDS * (attempt + 1))
+
+    raise last_error

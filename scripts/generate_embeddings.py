@@ -112,6 +112,9 @@ async def generate_embeddings(
                 logger.error(f"Error processing post #{post.id}: {e}")
                 continue
 
+        # Flush remaining batch (tail that doesn't align with batch_size)
+        await session.flush()
+
     print(f"✅ Обработано постов: {len(posts)}")
 
 

@@ -1,6 +1,6 @@
 """Bot middleware — user tracking, limit checks, etc."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -38,7 +38,7 @@ async def track_user_middleware(
             user.first_name = tg_user.first_name
 
         # Update last interaction
-        user.last_interaction = datetime.utcnow()
+        user.last_interaction = datetime.now(timezone.utc)
 
         # Check subscription expiry
         await check_subscription_expiry(session, user)

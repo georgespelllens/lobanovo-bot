@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models."""
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy import (
     Column,
     Integer,
@@ -64,7 +64,7 @@ class User(Base):
     # Metadata
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     last_interaction = Column(DateTime(timezone=True))
     metadata_ = Column("metadata", JSONB, default=dict)
 
@@ -111,8 +111,8 @@ class KnowledgeBase(Base):
 
     # Dates
     original_date = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_kb_category", "category"),
@@ -126,8 +126,8 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     mode = Column(String(20), nullable=False, default="qa")  # qa / audit / onboarding / task_review
-    started_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    last_message_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_message_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     message_count = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
     metadata_ = Column("metadata", JSONB, default=dict)
@@ -165,7 +165,7 @@ class Message(Base):
     model_used = Column(String(100))
     cost_usd = Column(Numeric(10, 6))
 
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     conversation = relationship("Conversation", back_populates="messages")
@@ -190,7 +190,7 @@ class TaskTemplate(Base):
     xp_reward = Column(Integer, nullable=False, default=10)
     estimated_hours = Column(Float, default=1.0)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     user_tasks = relationship("UserTask", back_populates="task_template")
@@ -208,7 +208,7 @@ class UserTask(Base):
     task_template_id = Column(Integer, ForeignKey("task_templates.id"), nullable=False)
 
     status = Column(String(20), default="assigned")  # assigned / submitted / reviewed / completed / skipped
-    assigned_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    assigned_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     submitted_at = Column(DateTime(timezone=True))
     reviewed_at = Column(DateTime(timezone=True))
 
@@ -249,7 +249,7 @@ class Escalation(Base):
     status = Column(String(20), default="pending")  # pending / viewed / resolved / converted
     admin_notes = Column(Text)
 
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     resolved_at = Column(DateTime(timezone=True))
 
     # Relationships
@@ -267,7 +267,7 @@ class Subscription(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     tier = Column(String(20), nullable=False)  # pro / premium
 
-    started_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime(timezone=True), nullable=False)
 
     payment_method = Column(String(50))  # manual / yukassa
@@ -294,8 +294,8 @@ class SystemPrompt(Base):
     content = Column(Text, nullable=False)
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class Feedback(Base):
@@ -305,7 +305,7 @@ class Feedback(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(Text, nullable=False)
     status = Column(String(20), default="new")  # new / read / acted_on
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     user = relationship("User", back_populates="feedback_list")
@@ -353,7 +353,7 @@ class DirectQuestion(Base):
 
     deadline_at = Column(DateTime(timezone=True))
 
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     paid_at = Column(DateTime(timezone=True))
     answered_at = Column(DateTime(timezone=True))
     delivered_at = Column(DateTime(timezone=True))

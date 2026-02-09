@@ -56,12 +56,12 @@ async def handle_direct_line_command(
                     [
                         InlineKeyboardButton(
                             f"💳 Оплатить {settings.direct_line_price_rub}₽",
-                            callback_data=f"dl_pay_{dq.id}",
+                            callback_data=f"dl:pay:{dq.id}",
                         ),
                     ],
                     [
                         InlineKeyboardButton(
-                            "❌ Отмена", callback_data=f"dl_cancel_{dq.id}"
+                            "❌ Отмена", callback_data=f"dl:cancel:{dq.id}"
                         ),
                     ],
                 ]
@@ -79,8 +79,8 @@ async def handle_direct_line_callback(
     data = query.data
     settings = get_settings()
 
-    if data.startswith("dl_pay_"):
-        dq_id = int(data.split("_")[-1])
+    if data.startswith("dl:pay:"):
+        dq_id = int(data.split(":")[-1])
         await query.edit_message_text(
             f"💳 Оплата Прямой линии — {settings.direct_line_price_rub}₽\n\n"
             "Переведи сумму и напиши «оплатил».\n"
@@ -104,13 +104,13 @@ async def handle_direct_line_callback(
                         [
                             InlineKeyboardButton(
                                 "✅ Оплата получена",
-                                callback_data=f"adl_confirm_{dq_id}",
+                                callback_data=f"adl:confirm:{dq_id}",
                             ),
                         ],
                         [
                             InlineKeyboardButton(
                                 "↩️ Вернуть деньги",
-                                callback_data=f"adl_refund_{dq_id}",
+                                callback_data=f"adl:refund:{dq_id}",
                             ),
                         ],
                     ]
@@ -119,7 +119,7 @@ async def handle_direct_line_callback(
         except Exception as e:
             logger.error(f"Failed to notify admin about DL payment: {e}")
 
-    elif data.startswith("dl_cancel_"):
+    elif data.startswith("dl:cancel:"):
         await query.edit_message_text("Прямая линия отменена. Можешь задать вопрос ИИ → /ask")
 
 
@@ -131,8 +131,8 @@ async def handle_admin_direct_line_callback(
     await query.answer()
     data = query.data
 
-    if data.startswith("adl_confirm_"):
-        dq_id = int(data.split("_")[-1])
+    if data.startswith("adl:confirm:"):
+        dq_id = int(data.split(":")[-1])
 
         async with get_session() as session:
             dq = await confirm_payment(session, dq_id)
@@ -153,9 +153,9 @@ async def handle_admin_direct_line_callback(
                             "Чем конкретнее — тем полезнее будет ответ."
                         ),
                     )
-                    # Set user mode
+                    # Set user mode — DQ status is now "paid" in DB,
+                    # which is checked by _route_text_to_handler and handle_voice
                     user.current_mode = "direct_line"
-                    context.bot_data[f"dq_awaiting_{user.telegram_id}"] = dq_id
                 except Exception as e:
                     logger.error(f"Failed to notify user about DL payment confirmation: {e}")
 
@@ -163,8 +163,8 @@ async def handle_admin_direct_line_callback(
             query.message.text + "\n\n✅ Оплата подтверждена"
         )
 
-    elif data.startswith("adl_refund_"):
-        dq_id = int(data.split("_")[-1])
+    elif data.startswith("adl:refund:"):
+        dq_id = int(data.split(":")[-1])
 
         async with get_session() as session:
             dq = await get_direct_question(session, dq_id)
@@ -185,14 +185,14 @@ async def handle_admin_direct_line_callback(
             query.message.text + "\n\n↩️ Возврат оформлен"
         )
 
-    elif data.startswith("adl_answered_"):
-        dq_id = int(data.split("_")[-1])
+    elif data.startswith("adl:answered:"):
+        dq_id = int(data.split(":")[-1])
         await query.edit_message_text(
             query.message.text + "\n\n✅ Ответ отправлен"
         )
 
-    elif data.startswith("adl_addkb_"):
-        dq_id = int(data.split("_")[-1])
+    elif data.startswith("adl:addkb:"):
+        dq_id = int(data.split(":")[-1])
 
         async with get_session() as session:
             kb_id = await transcribe_and_add_to_kb(session, context.bot, dq_id)
@@ -206,8 +206,8 @@ async def handle_admin_direct_line_callback(
                 query.message.text + "\n\n❌ Не удалось добавить в базу знаний"
             )
 
-    elif data.startswith("adl_morecontext_"):
-        dq_id = int(data.split("_")[-1])
+    elif data.startswith("adl:morecontext:"):
+        dq_id = int(data.split(":")[-1])
 
         async with get_session() as session:
             dq = await get_direct_question(session, dq_id)

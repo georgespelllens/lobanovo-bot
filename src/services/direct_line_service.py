@@ -1,6 +1,6 @@
 """Direct Line service — paid personal questions to Lobanov."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,8 +62,8 @@ async def confirm_payment(
     if dq:
         dq.status = "paid"
         dq.payment_confirmed = True
-        dq.payment_confirmed_at = datetime.utcnow()
-        dq.paid_at = datetime.utcnow()
+        dq.payment_confirmed_at = datetime.now(timezone.utc)
+        dq.paid_at = datetime.now(timezone.utc)
     return dq
 
 
@@ -84,8 +84,8 @@ async def submit_question(
         dq.question_voice_transcript = question_voice_transcript
         dq.question_type = "voice" if question_voice_file_id else "text"
         dq.status = "question_sent"
-        dq.deadline_at = datetime.utcnow() + timedelta(
-            hours=settings.direct_line_auto_refund_hours
+        dq.deadline_at = datetime.now(timezone.utc) + timedelta(
+            hours=settings.direct_line_response_deadline_hours
         )
 
     return dq
@@ -179,8 +179,8 @@ async def deliver_answer(
 
     dq.answer_voice_file_id = voice_file_id
     dq.status = "delivered"
-    dq.answered_at = datetime.utcnow()
-    dq.delivered_at = datetime.utcnow()
+    dq.answered_at = datetime.now(timezone.utc)
+    dq.delivered_at = datetime.now(timezone.utc)
 
     # Send to user
     try:
