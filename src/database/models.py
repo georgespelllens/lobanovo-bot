@@ -18,7 +18,13 @@ from sqlalchemy import (
 from sqlalchemy.types import DateTime
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import DeclarativeBase, relationship
-from pgvector.sqlalchemy import Vector
+
+# pgvector may not be available on all PostgreSQL instances
+try:
+    from pgvector.sqlalchemy import Vector
+    _HAS_PGVECTOR = True
+except ImportError:
+    _HAS_PGVECTOR = False
 
 
 class Base(DeclarativeBase):
@@ -91,7 +97,9 @@ class KnowledgeBase(Base):
     original_post_id = Column(String(100))
     content = Column(Text, nullable=False)
     content_summary = Column(Text)
-    embedding = Column(Vector(1536))
+    # Use JSONB for embeddings (works without pgvector extension)
+    # Switch to Vector(1536) when pgvector is available on the DB server
+    embedding = Column(JSONB)
 
     # Classification
     category = Column(String(50))  # career / personal_brand / pr / ...

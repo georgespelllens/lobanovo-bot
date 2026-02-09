@@ -89,7 +89,12 @@ async def search_knowledge_base(
     limit: int = 5,
     min_quality: float = 0.3,
 ) -> List[KnowledgeBase]:
-    """Search knowledge base by vector similarity."""
+    """Search knowledge base by vector similarity.
+    
+    NOTE: Currently uses quality_score ordering as fallback because
+    pgvector is not available. When pgvector is installed, switch
+    embedding column to Vector(1536) and use cosine_distance.
+    """
     result = await session.execute(
         select(KnowledgeBase)
         .where(
@@ -99,7 +104,7 @@ async def search_knowledge_base(
                 KnowledgeBase.quality_score >= min_quality,
             )
         )
-        .order_by(KnowledgeBase.embedding.cosine_distance(embedding))
+        .order_by(KnowledgeBase.quality_score.desc())
         .limit(limit)
     )
     return result.scalars().all()

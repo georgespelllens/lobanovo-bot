@@ -297,20 +297,6 @@ async def lifespan(app: FastAPI):
 
         if "users" not in tables:
             logger.info("Tables not found — creating via metadata.create_all")
-            # Try to enable pgvector extension
-            pgv_check = await conn.execute(
-                sa_text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")
-            )
-            if pgv_check.scalar() is not None:
-                await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
-                # #region agent log
-                logger.warning("[DEBUG][H6] pgvector extension enabled")
-                # #endregion
-            else:
-                # #region agent log
-                logger.warning("[DEBUG][H6] pgvector NOT available — embeddings may not work")
-                # #endregion
-
             await conn.run_sync(Base.metadata.create_all)
             # Verify
             result2 = await conn.execute(sa_text("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
