@@ -62,7 +62,7 @@ Free (0₽) → Pro (990₽/мес) → Premium (4990₽/мес) с разным
 | БД | PostgreSQL (pgvector опционально) |
 | ORM | SQLAlchemy 2.0 + asyncpg |
 | Миграции | Alembic |
-| LLM | OpenRouter (Claude Sonnet 4 / Haiku 4.5) |
+| LLM | xAI Grok (chat) + OpenRouter (embeddings: google/gemini-embedding-001) |
 | STT | OpenAI Whisper |
 | Деплой | Railway.com |
 
@@ -130,8 +130,8 @@ lobanovo-bot/
 
 ```bash
 cp .env.example .env
-# Заполни: TELEGRAM_BOT_TOKEN, DATABASE_URL, OPENROUTER_API_KEY,
-#          OPENAI_API_KEY, ADMIN_CHAT_ID, ADMIN_USER_IDS
+# Заполни: TELEGRAM_BOT_TOKEN, DATABASE_URL, XAI_API_KEY, OPENROUTER_API_KEY,
+#          OPENAI_API_KEY (Whisper), ADMIN_CHAT_ID, ADMIN_USER_IDS
 ```
 
 ### Локально
@@ -163,6 +163,16 @@ python scripts/load_knowledge_base.py --all
 
 # Эмбеддинги + категоризация
 python scripts/generate_embeddings.py
+
+# Пересчёт эмбеддингов (после смены модели, например на Gemini)
+python scripts/generate_embeddings.py --force --only-embeddings
+
+# Через Railway (если проект привязан: railway link)
+railway run python scripts/generate_embeddings.py --force --only-embeddings
+
+# Через API (после деплоя — требует SECRET_KEY в заголовке)
+curl -X POST https://lobanovo-bot-production.up.railway.app/admin/api/regenerate-embeddings \
+  -H "X-Admin-Token: YOUR_SECRET_KEY"
 
 # Шаблоны заданий
 python scripts/seed_tasks.py

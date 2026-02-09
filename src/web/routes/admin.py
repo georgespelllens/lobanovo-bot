@@ -1,11 +1,14 @@
 """Admin dashboard routes."""
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+import asyncio
+from fastapi import APIRouter, Request, Header, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from src.web.routes.auth import get_current_user
 from src.database.connection import get_session
+from src.config import get_settings
+from src.utils.logger import logger
 from src.database.repository import (
     get_admin_stats,
     get_pending_escalations,
@@ -45,3 +48,24 @@ async def admin_dashboard(request: Request):
             "kb_stats": kb_stats,
         },
     )
+
+
+@router.post("/admin/api/regenerate-embeddings")
+async def api_regenerate_embeddings(
+    x_admin_token: str = Header(..., alias="X-Admin-Token"),
+):
+    """Regenerate all embeddings (clear + create with current model). Requires X-Admin-Token: SECRET_KEY."""
+    settings = get_settings()
+    if x_admin_token != settings.secret_key:
+        raise HTTPException(status_code=403, detail="Invalid token")
+
+    from src.services.embedding_service import regenerate_all_embeddings
+
+    async def _run():
+        try:
+            await regenerate_all_embeddings(only_embeddings=True)
+        except Exception as e:
+            logger.error(f"Regeneration failed: {e}", exc_info=True)
+
+    asyncio.create_task(_run())
+    return JSONResponse({"status": "started", "message": "Regeneration running in background"})

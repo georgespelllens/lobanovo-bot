@@ -10,6 +10,7 @@ Usage:
   python scripts/generate_embeddings.py
   python scripts/generate_embeddings.py --batch-size 20
   python scripts/generate_embeddings.py --only-embeddings
+  python scripts/generate_embeddings.py --force --only-embeddings  # clear + regenerate (after model change)
 """
 
 import argparse
@@ -19,15 +20,32 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import select
-from src.database.connection import get_session
+from sqlalchemy import select, text
+from src.database.connection import get_session, get_engine
 from src.database.models import KnowledgeBase
 from src.services.llm_service import get_embedding, call_llm
 from src.utils.logger import logger
 
 
-async def generate_embeddings(batch_size: int = 10, only_embeddings: bool = False):
+async def clear_all_embeddings():
+    """Clear all embeddings (for re-embedding with new model)."""
+    async with get_engine().begin() as conn:
+        result = await conn.execute(
+            text("UPDATE knowledge_base SET embedding = NULL WHERE embedding IS NOT NULL")
+        )
+        print(f"Cleared embeddings: {result.rowcount} rows")
+    return result.rowcount
+
+
+async def generate_embeddings(
+    batch_size: int = 10,
+    only_embeddings: bool = False,
+    force: bool = False,
+):
     """Generate embeddings for all posts without them."""
+
+    if force:
+        await clear_all_embeddings()
 
     async with get_session() as session:
         # Get posts without embeddings
@@ -101,9 +119,10 @@ def main():
     parser = argparse.ArgumentParser(description="Generate embeddings for knowledge base")
     parser.add_argument("--batch-size", type=int, default=10, help="Batch size for DB commits")
     parser.add_argument("--only-embeddings", action="store_true", help="Only generate embeddings, skip categorization")
+    parser.add_argument("--force", action="store_true", help="Clear existing embeddings first (for model migration)")
 
     args = parser.parse_args()
-    asyncio.run(generate_embeddings(args.batch_size, args.only_embeddings))
+    asyncio.run(generate_embeddings(args.batch_size, args.only_embeddings, args.force))
 
 
 if __name__ == "__main__":
