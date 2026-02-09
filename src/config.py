@@ -2,25 +2,25 @@
 
 from pydantic_settings import BaseSettings
 from pydantic import Field
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
     """Main application settings loaded from environment variables."""
 
     # Telegram
-    telegram_bot_token: str
-    admin_chat_id: int
+    telegram_bot_token: str = ""
+    admin_chat_id: int = 0
     admin_user_ids: str = ""  # comma-separated telegram IDs
 
     # OpenRouter
-    openrouter_api_key: str
+    openrouter_api_key: str = ""
 
     # OpenAI (Whisper)
-    openai_api_key: str
+    openai_api_key: str = ""
 
     # Database
-    database_url: str
+    database_url: str = "postgresql+asyncpg://postgres:password@localhost:5432/lobanov_bot"
 
     # App
     app_url: str = "http://localhost:8000"
