@@ -406,7 +406,14 @@ app.include_router(miniapp_router)
 import os
 
 _miniapp_dist = os.path.join(os.path.dirname(__file__), "web", "miniapp", "dist")
-if os.path.isdir(_miniapp_dist):
+_miniapp_exists = os.path.isdir(_miniapp_dist)
+# #region agent log
+logger.info(
+    "Mini App mount | hypothesis=H1,H2 path=%s exists=%s dirname=%s cwd=%s",
+    _miniapp_dist, _miniapp_exists, os.path.dirname(__file__), os.getcwd()
+)
+# #endregion
+if _miniapp_exists:
     app.mount("/miniapp", StaticFiles(directory=_miniapp_dist, html=True), name="miniapp")
 
 
