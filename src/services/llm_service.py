@@ -1,4 +1,10 @@
-"""LLM service: xAI Grok for chat, OpenRouter/Gemini for embeddings.
+"""LLM service: OpenRouter for all LLM calls (chat + embeddings).
+
+All models are accessed through OpenRouter API, which provides:
+- Anthropic Claude (claude-sonnet-4-20250514)
+- xAI Grok (x-ai/grok-4, etc.)
+- Google Gemini (embeddings)
+- Any other model via unified API
 
 Includes retry logic and fallback models for resilience.
 """
@@ -11,14 +17,12 @@ from src.config import get_settings, MODELS
 from src.utils.logger import logger
 
 
-_llm_client: Optional[AsyncOpenAI] = None
-_embedding_client: Optional[AsyncOpenAI] = None
+_openrouter_client: Optional[AsyncOpenAI] = None
 
 # Fallback models: primary -> fallback
 FALLBACK_MODELS = {
-    "grok-4": "grok-3",
-    "grok-4-1-fast-non-reasoning": "grok-3-mini",
-    "grok-4-1-fast-reasoning": "grok-3-mini",
+    "anthropic/claude-sonnet-4-20250514": "google/gemini-2.0-flash-001",
+    "google/gemini-2.0-flash-001": "google/gemini-2.5-flash-preview-05-20",
 }
 
 # Max retry attempts per model
@@ -26,39 +30,39 @@ MAX_RETRIES = 2
 RETRY_DELAY_SECONDS = 1.0
 
 
-def get_llm_client() -> AsyncOpenAI:
-    """Get or create xAI Grok client for chat completions."""
-    global _llm_client
-    if _llm_client is None:
+def _get_openrouter_client() -> AsyncOpenAI:
+    """Get OpenRouter client (used for all LLM and embedding calls)."""
+    global _openrouter_client
+    if _openrouter_client is None:
         settings = get_settings()
-        _llm_client = AsyncOpenAI(
-            base_url="https://api.x.ai/v1",
-            api_key=settings.xai_api_key,
-        )
-    return _llm_client
-
-
-def _get_embedding_client() -> AsyncOpenAI:
-    """Get OpenRouter client for embeddings (Gemini Embedding)."""
-    global _embedding_client
-    if _embedding_client is None:
-        settings = get_settings()
-        _embedding_client = AsyncOpenAI(
+        _openrouter_client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=settings.openrouter_api_key,
+            default_headers={
+                "HTTP-Referer": settings.app_url,
+                "X-Title": settings.app_name,
+            },
         )
-    return _embedding_client
+    return _openrouter_client
+
+
+def get_llm_client() -> AsyncOpenAI:
+    """Get LLM client for chat completions (OpenRouter)."""
+    return _get_openrouter_client()
 
 
 def calculate_cost(usage, model: str) -> float:
     """Estimate cost based on model and usage (per 1M tokens)."""
     costs = {
-        "grok-4": (3.0, 15.0),
-        "grok-4-1-fast-reasoning": (0.20, 0.50),
-        "grok-4-1-fast-non-reasoning": (0.20, 0.50),
-        "grok-3": (2.0, 8.0),
-        "grok-3-mini": (0.50, 2.0),
+        # Anthropic via OpenRouter
+        "anthropic/claude-sonnet-4-20250514": (3.0, 15.0),
+        "anthropic/claude-3-5-haiku-20241022": (0.80, 4.0),
+        # Google via OpenRouter
+        "google/gemini-2.0-flash-001": (0.10, 0.40),
         "google/gemini-embedding-001": (0.15, 0.0),
+        # xAI via OpenRouter (if used)
+        "x-ai/grok-4": (3.0, 15.0),
+        "x-ai/grok-3-mini": (0.50, 2.0),
     }
     rates = costs.get(model, (1.0, 4.0))
     input_cost = (usage.prompt_tokens / 1_000_000) * rates[0]
@@ -150,15 +154,14 @@ async def call_llm(
 
 
 async def get_embedding(text: str) -> list:
-    """Generate embedding for text via OpenRouter (google/gemini-embedding-001).
+    """Generate embedding for text via OpenRouter.
     
     Includes retry logic for transient failures.
     """
-    client = _get_embedding_client()
-    settings = get_settings()
+    client = _get_openrouter_client()
     model = MODELS["embedding"]
 
-    # Gemini embedding max ~2048 tokens; truncate to ~8000 chars
+    # Truncate to ~8000 chars for embedding models
     text = text[:8000]
 
     last_error = None
@@ -167,10 +170,6 @@ async def get_embedding(text: str) -> list:
             response = await client.embeddings.create(
                 model=model,
                 input=text,
-                extra_headers={
-                    "HTTP-Referer": settings.app_url,
-                    "X-Title": settings.app_name,
-                },
             )
             return response.data[0].embedding
         except Exception as e:

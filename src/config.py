@@ -73,19 +73,19 @@ class Settings(BaseSettings):
     }
 
 
-# Models for different tasks (chat: xAI Grok, embedding: OpenRouter/Gemini)
-# grok-4: flagship reasoning ($3/$15 per 1M tokens, 256K context)
-# grok-4-1-fast-non-reasoning: fast & cheap ($0.20/$0.50 per 1M, 2M context)
+# Models for different tasks — all via OpenRouter API
+# anthropic/claude-sonnet-4-20250514: flagship ($3/$15 per 1M tokens)
+# google/gemini-2.0-flash-001: fast & ultra-cheap ($0.10/$0.40 per 1M)
 MODELS = {
-    "qa": "grok-4",
-    "audit": "grok-4",
-    "task_review": "grok-4",
-    "summary": "grok-4-1-fast-non-reasoning",
+    "qa": "anthropic/claude-sonnet-4-20250514",
+    "audit": "anthropic/claude-sonnet-4-20250514",
+    "task_review": "anthropic/claude-sonnet-4-20250514",
+    "summary": "google/gemini-2.0-flash-001",
     "embedding": "google/gemini-embedding-001",
-    "categorize": "grok-4-1-fast-non-reasoning",
-    "direct_line_card": "grok-4-1-fast-non-reasoning",
-    "direct_line_followup": "grok-4",
-    "direct_line_anonymize": "grok-4-1-fast-non-reasoning",
+    "categorize": "google/gemini-2.0-flash-001",
+    "direct_line_card": "google/gemini-2.0-flash-001",
+    "direct_line_followup": "anthropic/claude-sonnet-4-20250514",
+    "direct_line_anonymize": "google/gemini-2.0-flash-001",
 }
 
 # Tier limits
