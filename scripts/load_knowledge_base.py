@@ -30,8 +30,21 @@ from datetime import datetime
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.database.connection import get_session
-from src.database.models import KnowledgeBase
+# DB imports are deferred — not needed for --dry-run
+_db_imported = False
+get_session = None
+KnowledgeBase = None
+
+
+def _ensure_db_imports():
+    """Lazy-import DB modules (not needed for --dry-run)."""
+    global _db_imported, get_session, KnowledgeBase
+    if not _db_imported:
+        from src.database.connection import get_session as _gs
+        from src.database.models import KnowledgeBase as _kb
+        get_session = _gs
+        KnowledgeBase = _kb
+        _db_imported = True
 
 
 # ─── Content filters (pre-LLM, rule-based) ────────────────
@@ -117,13 +130,32 @@ class TelegramHTMLParser(HTMLParser):
 
 # ─── MD Parser (for «Бородатый, лысый, твой») ─────────────
 
-def parse_md_channel(file_path: str) -> list:
-    """Parse MD export of Telegram channel."""
+def parse_md_channel(file_path: str, channel_name: str = None) -> list:
+    """Parse MD export of Telegram channel.
+    
+    Auto-detects channel name from first line if not provided.
+    Splits content by channel name marker to extract individual posts.
+    """
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
 
+    # Auto-detect channel name: pick the candidate with most occurrences
+    if not channel_name:
+        candidates = [
+            "Бородатый, лысый, твой",
+            "Лобаново Наставничество",
+        ]
+        best_name = None
+        best_count = 0
+        for c in candidates:
+            count = content.count(c)
+            if count > best_count:
+                best_count = count
+                best_name = c
+        channel_name = best_name or "Бородатый, лысый, твой"
+
     # Split by channel name marker
-    blocks = re.split(r"Бородатый, лысый, твой", content)
+    blocks = re.split(re.escape(channel_name), content)
     posts = []
 
     for block in blocks:
@@ -162,14 +194,14 @@ def parse_md_channel(file_path: str) -> list:
 # ─── Parsing dispatcher ───────────────────────────────────
 
 def parse_file(file_path: str, format: str) -> list:
-    """Parse a file and return raw posts."""
+    """Parse a file and return raw posts. Auto-detects channel name for MD."""
     if format == "html":
         parser = TelegramHTMLParser()
         with open(file_path, "r", encoding="utf-8") as f:
             parser.feed(f.read())
         return parser.posts
     elif format == "md":
-        return parse_md_channel(file_path)
+        return parse_md_channel(file_path)  # Auto-detects channel name
     else:
         raise ValueError(f"Unknown format: {format}")
 
@@ -270,6 +302,9 @@ async def load_posts(file_path: str, source: str, format: str = "html", dry_run:
         print_dry_run_stats(source, file_path, posts_raw, posts_good, stats)
         return stats
 
+    # Only import DB when actually writing
+    _ensure_db_imports()
+
     print(f"Найдено постов: {len(posts_raw)}, после фильтрации: {len(posts_good)} из {file_path}")
 
     async with get_session() as session:
@@ -332,14 +367,20 @@ async def load_all(dry_run: bool = False):
         for k, v in s["rejected"].items():
             total_stats["rejected"][k] = total_stats["rejected"].get(k, 0) + v
 
-    # Наставничество channel (HTML)
-    html_file = os.path.join(data_dir, "лобаново.html")
-    if os.path.exists(html_file):
-        s = await load_posts(html_file, "nastavnichestvo_channel", "html", dry_run)
+    # Наставничество channel (MD or HTML)
+    # Try MD first (more common export), then HTML
+    md_nastavnichestvo = os.path.join(data_dir, "лобаново.md")
+    html_nastavnichestvo = os.path.join(data_dir, "лобаново.html")
+    if os.path.exists(md_nastavnichestvo):
+        s = await load_posts(md_nastavnichestvo, "nastavnichestvo_channel", "md", dry_run)
+        if s:
+            merge_stats(s)
+    elif os.path.exists(html_nastavnichestvo):
+        s = await load_posts(html_nastavnichestvo, "nastavnichestvo_channel", "html", dry_run)
         if s:
             merge_stats(s)
     else:
-        print(f"⚠️  Файл не найден: {html_file}")
+        print(f"⚠️  Файл не найден: {md_nastavnichestvo} или {html_nastavnichestvo}")
 
     # Main channel (MD, 5 files)
     for i in range(1, 6):
