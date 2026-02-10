@@ -1,0 +1,14 @@
+# Nixpacks: Python + Node.js (Mini App build)
+# Railway uses this when builder is set to NIXPACKS
+
+[phases.setup]
+nixPkgs = ["nodejs_20", "python311"]
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt",
+  "cd src/web/miniapp && npm install && npm run build"
+]
+
+[start]
+cmd = "uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"

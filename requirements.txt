@@ -16,3 +16,5 @@ httpx==0.28.0
 itsdangerous==2.2.0
 apscheduler==3.10.4
 numpy==2.2.0
+PyJWT==2.9.0
+sse-starlette==2.1.0

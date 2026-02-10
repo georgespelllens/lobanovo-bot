@@ -42,6 +42,9 @@ from src.web.routes.auth import router as auth_router
 from src.web.routes.dashboard import router as dashboard_router
 from src.web.routes.admin import router as admin_router
 
+# Mini App API
+from src.api.miniapp.router import router as miniapp_router
+
 
 # ─── Telegram Bot Application ────────────────────────────────
 
@@ -65,6 +68,7 @@ def create_bot_application() -> Application:
     # ─── User commands ───
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("help", handle_help))
+    app.add_handler(CommandHandler("app", handle_open_miniapp))
     app.add_handler(CommandHandler("audit", handle_audit_command))
     app.add_handler(CommandHandler("ask", handle_ask_mode))
     app.add_handler(CommandHandler("progress", handle_progress_command))
@@ -110,6 +114,26 @@ async def handle_help(update: Update, context) -> None:
         "💎 /plan — твой тариф и лимиты\n"
         "💌 /feedback — обратная связь\n\n"
         "Голосовые тоже принимаю! 🎙"
+    )
+
+
+async def handle_open_miniapp(update: Update, context) -> None:
+    """Handle /app — open Mini App."""
+    from telegram import WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
+
+    settings = get_settings()
+    miniapp_url = f"{settings.app_url}/miniapp/"
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            text="🚀 Открыть приёмную",
+            web_app=WebAppInfo(url=miniapp_url),
+        )]
+    ])
+
+    await update.message.reply_text(
+        "Открой приёмную, чтобы увидеть свой прогресс, задания и чат с ментором:",
+        reply_markup=keyboard,
     )
 
 
@@ -375,6 +399,15 @@ app.mount("/static", StaticFiles(directory="src/web/static"), name="static")
 app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(admin_router)
+app.include_router(miniapp_router)
+
+
+# ─── Mini App Static Files ────────────────────────────────────
+import os
+
+_miniapp_dist = os.path.join(os.path.dirname(__file__), "web", "miniapp", "dist")
+if os.path.isdir(_miniapp_dist):
+    app.mount("/miniapp", StaticFiles(directory=_miniapp_dist, html=True), name="miniapp")
 
 
 @app.post("/webhook")

@@ -41,3 +41,7 @@ htmlcov/
 # Temp
 tmp/
 temp/
+
+# Mini App (frontend)
+node_modules/
+src/web/miniapp/dist/

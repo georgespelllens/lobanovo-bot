@@ -114,6 +114,9 @@ async def handle_audit_message(
         increment_usage(user, "audits")
         user.last_interaction = datetime.now(timezone.utc)
 
+        # Auto-return to Q&A mode after audit
+        user.current_mode = "qa"
+
         # Send response with rating and rewrite buttons
         keyboard = InlineKeyboardMarkup(
             [
@@ -130,3 +133,9 @@ async def handle_audit_message(
         )
 
         await update.message.reply_text(result["content"], reply_markup=keyboard)
+
+        # Notify user about mode switch
+        await update.message.reply_text(
+            "✍️ Аудит завершён. Теперь ты снова в режиме вопросов.\n"
+            "Чтобы разобрать ещё один пост — /audit"
+        )
