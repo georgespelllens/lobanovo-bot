@@ -91,11 +91,11 @@ MODELS = {
 # Tier limits
 TIER_LIMITS = {
     "free": {
-        "weekly_questions": 5,
-        "weekly_audits": 2,
-        "history_days": 7,
-        "can_escalate": False,
-        "web_dashboard": False,
+        "weekly_questions": 999999,
+        "weekly_audits": 999999,
+        "history_days": 999999,
+        "can_escalate": True,
+        "web_dashboard": True,
         "direct_line_price": 1000,
         "free_direct_questions_monthly": 0,
     },
