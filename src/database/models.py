@@ -74,10 +74,6 @@ class User(Base):
     # Negative feedback streak
     negative_streak = Column(Integer, default=0)
 
-    # Mini App
-    miniapp_token_hash = Column(String(255))
-    miniapp_last_seen = Column(DateTime(timezone=True))
-
     # Relationships
     conversations = relationship("Conversation", back_populates="user")
     messages = relationship("Message", back_populates="user")

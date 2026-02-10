@@ -1,9 +1,8 @@
 # Railway config — build + start
-# Переопределяет автоопределение: собираем Python + Mini App (React)
 
 [build]
 builder = "NIXPACKS"
-buildCommand = "pip install -r requirements.txt && cd src/web/miniapp && npm install && npm run build"
+buildCommand = "pip install -r requirements.txt"
 
 [deploy]
 startCommand = "uvicorn src.main:app --host 0.0.0.0 --port $PORT"

@@ -40,10 +40,6 @@ class Settings(BaseSettings):
     max_voice_duration_seconds: int = 300
     max_message_length: int = 4000
 
-    # Mini App
-    miniapp_jwt_secret: str = ""  # Falls back to secret_key if empty
-    miniapp_jwt_expiry_hours: int = 24
-
     # Direct Line
     direct_line_price_rub: int = 1000
     direct_line_weekly_quota: int = 10
